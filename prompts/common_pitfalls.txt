@@ -1,83 +1,83 @@
-━━━ CATALOGO ERRORI COMUNI (Prevenirli alla generazione evita il loop di fix) ━━━
+━━━ COMMON ERRORS CATALOG (Preventing them at generation time avoids the fix loop) ━━━
 
 P1 — CONTEXT/POLL SAFETY
-Prima di OGNI bpy.ops.*, imposta esplicitamente:
+Before EVERY bpy.ops.*, explicitly set:
   bpy.context.view_layer.objects.active = obj
   bpy.ops.object.mode_set(mode='OBJECT')
-Altrimenti: "poll() failed", "context is incorrect", "Cannot run in background mode".
+Otherwise: "poll() failed", "context is incorrect", "Cannot run in background mode".
 
 P2 — BMESH LIFECYCLE
-Ogni bmesh.new() o bmesh.from_edit_mesh() DEVE essere seguito da:
+Every bmesh.new() or bmesh.from_edit_mesh() MUST be followed by:
   bm.to_mesh(mesh)
   bm.free()
-PRIMA di qualsiasi successivo bpy.ops.*. Lasciare un bmesh "vivo" quando si chiama
-un operatore causa crash. ensure_lookup_table() sempre dopo modifiche a verts/edges/faces.
+BEFORE any subsequent bpy.ops.*. Leaving a bmesh "alive" when calling
+an operator causes a crash. ensure_lookup_table() always after modifications to verts/edges/faces.
 
-P3 — OGGETTI RIMOSSI
-Non referenziare mai un oggetto dopo bpy.data.objects.remove(). Se serve verificare
-l'esistenza: "if obj.name in bpy.data.objects:" prima di operare su di esso.
+P3 — REMOVED OBJECTS
+Never reference an object after bpy.data.objects.remove(). If you need to verify
+existence: "if obj.name in bpy.data.objects:" before operating on it.
 
 P4 — NONE-CHECK
-Dopo ogni operazione che crea/recupera un oggetto, verifica che non sia None:
-"if obj is None: raise RuntimeError('Oggetto non creato correttamente')"
+After every operation that creates/retrieves an object, verify it is not None:
+"if obj is None: raise RuntimeError('Object not created correctly')"
 
-P5 — API MODERNE BLENDER 3.x+
+P5 — MODERN BLENDER 3.x+ APIs
   obj.select = True                -> obj.select_set(True)
   scene.objects.link(obj)          -> bpy.context.collection.objects.link(obj)
   context.scene.objects.active     -> bpy.context.view_layer.objects.active
   bpy.ops.object.modifier_apply(apply_as='DATA') -> modifier=mod.name
   bpy.context.scene.objects        -> bpy.data.objects
 
-P6 — MODIFIER APPLY PRECONDIZIONI
-Prima di bpy.ops.object.modifier_apply(modifier=mod.name):
-  1. Oggetto attivo (bpy.context.view_layer.objects.active = obj)
+P6 — MODIFIER APPLY PRECONDITIONS
+Before bpy.ops.object.modifier_apply(modifier=mod.name):
+  1. Active object (bpy.context.view_layer.objects.active = obj)
   2. OBJECT mode (bpy.ops.object.mode_set(mode='OBJECT'))
-  3. modifier abilitato (mod.show_viewport = True)
-  4. trasforma l'oggetto in oggetto attivo E selezionato
+  3. Modifier enabled (mod.show_viewport = True)
+  4. Transform the object into active AND selected object
 
-P7 — DIVISIONI PER ZERO
-Proteggi OGNI formula con denominatore variabile:
+P7 — DIVISIONS BY ZERO
+Protect EVERY formula with a variable denominator:
   "if H == 0: H = 0.001"
-PRIMA di usarla nei loop di generazione vertici. Fallisce anche per valori
-estremamente piccoli che causano overflow.
+BEFORE using it in vertex generation loops. It also fails for extremely
+small values that cause overflow.
 
-P8 — BOOLEANE SICURE
-  - bmesh.ops.remove_doubles PRIMA della booleana
-  - cutter manifold con overshoot >= 20% sull'asse di taglio
+P8 — SAFE BOOLEANS
+  - bmesh.ops.remove_doubles BEFORE the boolean
+  - manifold cutter with overshoot >= 20% on the cutting axis
   - solver='EXACT'
-  - cutter con mesh DEDICATA (NON condivisa col body — usa .copy() se serve)
-  - transform_apply su cutter e body PRIMA della booleana
-  - bpy.data.objects.remove(cutter, do_unlink=True) DOPO
-  - select_all('DESELECT') PRIMA di selezionare con select_set(True)
+  - cutter with DEDICATED mesh (NOT shared with the body — use .copy() if needed)
+  - transform_apply on cutter and body BEFORE the boolean
+  - bpy.data.objects.remove(cutter, do_unlink=True) AFTER
+  - select_all('DESELECT') BEFORE selecting with select_set(True)
 
-P9 — SELEZIONE PULITA
-Prima di obj.select_set(True), chiama:
+P9 — CLEAN SELECTION
+Before obj.select_set(True), call:
   bpy.ops.object.select_all(action='DESELECT')
-Altrimenti select_set si accumula su oggetti gia' selezionati e gli operatori
-agiscono su oggetti non desiderati.
+Otherwise select_set accumulates on already selected objects and operators
+act on unintended objects.
 
-P10 — SOLIDIFY SU MESH NON MANIFOLD
-Solidify richiede mesh manifold (bordi chiusi). Se la mesh ha boundary edges,
-Solidify produce artefatti o fallisce. Chiudi tutti i buchi PRIMA di applicare Solidify.
+P10 — SOLIDIFY ON NON-MANIFOLD MESH
+Solidify requires a manifold mesh (closed edges). If the mesh has boundary edges,
+Solidify produces artifacts or fails. Close all holes BEFORE applying Solidify.
 
-P11 — N_SEGS TROPPO BASSO PER RIVOLUZIONI
-Per archetipo A (rivoluzione): N_SEGS < 64 produce poligoni visibili sulla superficie
-curva. Usa >= 128. Per archetipo B (bevel): segmenti >= 16 per arco curvo.
+P11 — N_SEGS TOO LOW FOR REVOLUTIONS
+For archetype A (revolution): N_SEGS < 64 produces visible polygons on the curved
+surface. Use >= 128. For archetype B (bevel): segments >= 16 per curved arc.
 
-P12 — BMESH DOPO MODIFIER
-Se modifichi la mesh con bmesh e poi applichi un modifier, le modifiche bmesh vengono
-perse. Usa bmesh PRIMA dei modifier, o applica i modifier prima di bmesh.
-In generale: costruisci geometria in bmesh -> to_mesh() -> bm.free() -> modifier.
+P12 — BMESH AFTER MODIFIERS
+If you modify the mesh with bmesh and then apply a modifier, the bmesh modifications
+are lost. Use bmesh BEFORE modifiers, or apply modifiers before bmesh.
+In general: build geometry in bmesh -> to_mesh() -> bm.free() -> modifier.
 
-P13 — BOOLEAN CON SCALE NON APPLICATA
-Se l'oggetto o il cutter hanno scale diversa da 1.0, il Boolean fallisce
-silenziosamente o produce geometria corrotta. Applica transform_apply PRIMA.
+P13 — BOOLEAN WITH UNAPPLIED SCALE
+If the object or cutter has a scale different from 1.0, the Boolean silently
+fails or produces corrupted geometry. Apply transform_apply BEFORE.
 
-P14 — RENDER IN BACKGROUND MODE
-Per catture render in --background, non puoi usare viewport rendering.
-Usa bpy.ops.render.render(write_still=True) con una camera configurata.
-Materiali: assegna almeno un materiale di base con colore chiaro per la vision review.
+P14 — RENDERING IN BACKGROUND MODE
+For render captures in --background, you cannot use viewport rendering.
+Use bpy.ops.render.render(write_still=True) with a configured camera.
+Materials: assign at least one base material with a light color for vision review.
 
-P15 — TO_MESH_CLEAR() DIMENTICATO
-Dopo evaluated_get().to_mesh(), chiama .to_mesh_clear() per evitare memory leak
-e crash su Blender 3.x+ in esecuzioni successive.
+P15 — TO_MESH_CLEAR() FORGOTTEN
+After evaluated_get().to_mesh(), call .to_mesh_clear() to avoid memory leaks
+and crashes on Blender 3.x+ in successive executions.

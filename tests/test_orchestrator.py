@@ -1,4 +1,4 @@
-"""Test per core/orchestrator.py — metodi sincroni interni."""
+"""Tests for core/orchestrator.py — internal synchronous methods."""
 
 import pytest
 from unittest.mock import patch, MagicMock
@@ -7,7 +7,7 @@ from core.orchestrator import Orchestrator
 
 @pytest.fixture
 def orch():
-    """Crea un'istanza Orchestrator con mock per LLMClient."""
+    """Create an Orchestrator instance with mock for LLMClient."""
     with patch("core.orchestrator.LLMClient") as MockLLM, \
          patch("core.orchestrator.validate_api_keys") as MockValidate:
         mock_llm = MagicMock()
@@ -30,26 +30,26 @@ def orch():
 
 class TestExtractArchetype:
     def test_extracts_A(self, orch):
-        assert orch._extract_archetype("ARCHETIPO: A -- rivoluzione") == "A"
+        assert orch._extract_archetype("ARCHETYPE: A -- hybrid") == "A"
 
     def test_extracts_B(self, orch):
-        assert orch._extract_archetype("ARCHETIPO: B") == "B"
+        assert orch._extract_archetype("ARCHETYPE: B") == "B"
 
     def test_extracts_C(self, orch):
-        assert orch._extract_archetype("ARCHETIPO:C") == "C"
+        assert orch._extract_archetype("ARCHETYPE:C") == "C"
 
     def test_returns_empty_when_not_found(self, orch):
-        assert orch._extract_archetype("nessun archetipo qui") == ""
+        assert orch._extract_archetype("no archetype here") == ""
 
     def test_case_insensitive(self, orch):
-        # _extract_archetype upperca la riga, quindi case-insensitive
-        assert orch._extract_archetype("archetipo: D") == "D"
+        # _extract_archetype uppercases the line, so it's case-insensitive
+        assert orch._extract_archetype("archetype: D") == "D"
 
     def test_case_insensitive_lowercase(self, orch):
-        assert orch._extract_archetype("archetipo: d") == "D"
+        assert orch._extract_archetype("archetype: d") == "D"
 
     def test_multiple_lines(self, orch):
-        text = "prima riga\nARCHETIPO: E -- ibrido\naltra riga"
+        text = "first line\nARCHETYPE: E -- hybrid\nanother line"
         assert orch._extract_archetype(text) == "E"
 
 

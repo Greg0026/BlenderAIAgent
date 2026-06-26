@@ -1,19 +1,19 @@
-"""Tracciamento errori e rilevamento oscillazioni per la pipeline.
+"""Error tracking and oscillation detection for the pipeline.
 
-Fornisce due classi fondamentali per la stabilità della pipeline:
+Provides two fundamental classes for pipeline stability:
 
 ErrorHistory:
-  Mantiene la cronologia degli errori incontrati nelle fasi F6 e F6-VIS.
-  Ogni errore viene registrato con una "firma" (signature) che identifica
-  il tipo di errore (basata sul messaggio, non sull'intero stack trace).
-  La cronologia viene passata al LLM nelle chiamate successive per evitare
-  che ripeta fix già tentati senza successo.
+  Maintains the history of errors encountered in F6 and F6-VIS phases.
+  Each error is registered with a "signature" that identifies
+  the error type (based on the message, not the entire stack trace).
+  The history is passed to the LLM in subsequent calls to prevent
+  repeating already attempted fixes that were unsuccessful.
 
 OscillationDetector:
-  Rileva pattern di oscillazione nelle iterazioni della pipeline.
-  Confronta le impronte MD5 degli script prodotti a ogni iterazione.
-  Se lo script torna a uno stato già visto (pattern A→B→A→B), rileva
-  l'oscillazione e permette all'orchestratore di interrompere il ciclo.
+  Detects oscillation patterns in pipeline iterations.
+  Compares MD5 fingerprints of scripts produced at each iteration.
+  If the script returns to a previously seen state (pattern A→B→A→B), detects
+  the oscillation and allows the orchestrator to break the cycle.
 """
 
 import hashlib
@@ -22,37 +22,37 @@ from typing import List, Optional
 
 
 class ErrorHistory:
-    """Cronologia degli errori con rilevamento ripetizioni.
+    """Error history with repetition detection.
 
-    Utile per evitare che la pipeline ripeta all'infinito lo stesso fix
-    senza successo. Ogni errore viene convertito in una "firma" estratta
-    dal messaggio principale (linea Error: o Exception:), ignorando le
-    parti variabili come indirizzi di memoria o timestamp.
+    Useful to prevent the pipeline from repeating the same fix
+    indefinitely without success. Each error is converted to a "signature" extracted
+    from the main message (Error: or Exception: line), ignoring
+    variable parts such as memory addresses or timestamps.
 
     Args:
-        max_history: Numero massimo di errori da mantenere in cronologia.
+        max_history: Maximum number of errors to keep in history.
     """
 
     def __init__(self, max_history: int = 10):
-        """Inizializza la cronologia vuota con capacità massima.
+        """Initializes an empty history with maximum capacity.
 
         Args:
-            max_history: Numero massimo di errori da tracciare (FIFO).
+            max_history: Maximum number of errors to track (FIFO).
         """
         self._errors: List[str] = []
         self._fixes: List[str] = []
         self._max = max_history
 
     def add(self, error: str, fix_approach: str = ""):
-        """Registra un nuovo errore e il fix tentato.
+        """Registers a new error and the attempted fix.
 
-        Se lo stesso errore (stessa firma) è già presente, non viene
-        duplicato. Il fix_approach è una descrizione testuale opzionale
-        di cosa è stato tentato (utile per il prompt LLM).
+        If the same error (same signature) is already present, it is not
+        duplicated. The fix_approach is an optional textual description
+        of what was attempted (useful for the LLM prompt).
 
         Args:
-            error: Testo completo dell'errore.
-            fix_approach: Descrizione del fix tentato (es. "static fix attempt").
+            error: Full error text.
+            fix_approach: Description of the attempted fix (e.g. "static fix attempt").
         """
         error_sig = self._signature(error)
         if error_sig not in self._errors:
@@ -63,53 +63,53 @@ class ErrorHistory:
             self._fixes.pop(0)
 
     def is_repeated(self, error: str) -> bool:
-        """Verifica se un errore è già stato visto in precedenza.
+        """Checks if an error has already been seen before.
 
         Args:
-            error: Testo completo dell'errore da verificare.
+            error: Full error text to check.
 
         Returns:
-            True se lo stesso errore (stessa firma) è già in cronologia.
+            True if the same error (same signature) is already in the history.
         """
         return self._signature(error) in self._errors
 
     def get_history_block(self) -> str:
-        """Restituisce un blocco di testo formattato per il prompt LLM.
+        """Returns a formatted text block for the LLM prompt.
 
-        Il blocco elenca gli errori precedenti e i fix tentati, con
-        l'istruzione "NON RIPETERE" per prevenire cicli infiniti.
+        The block lists previous errors and attempted fixes, with
+        the instruction "DO NOT REPEAT" to prevent infinite loops.
 
         Returns:
-            Testo formattato con cronologia errori, o "Nessun tentativo precedente."
+            Formatted text with error history, or "No previous attempts."
         """
         if not self._errors:
-            return "Nessun tentativo precedente."
-        lines = ["TENTATIVI PRECEDENTI (NON RIPETERE):"]
+            return "No previous attempts."
+        lines = ["PREVIOUS ATTEMPTS (DO NOT REPEAT):"]
         for i, (err, fix) in enumerate(zip(self._errors, self._fixes), 1):
-            lines.append(f"  {i}. Errore: {err[:120]}")
+            lines.append(f"  {i}. Error: {err[:120]}")
             if fix:
-                lines.append(f"     Fix tentato: {fix[:120]}")
+                lines.append(f"     Fix attempted: {fix[:120]}")
         return "\n".join(lines)
 
     def clear(self):
-        """Resetta la cronologia cancellando tutti gli errori registrati."""
+        """Resets the history by clearing all registered errors."""
         self._errors.clear()
         self._fixes.clear()
 
     @staticmethod
     def _signature(error: str) -> str:
-        """Estrae una firma univoca da un messaggio di errore.
+        """Extracts a unique signature from an error message.
 
-        La firma è la prima riga che contiene "Error:" o "Exception:"
-        (troncata a 150 caratteri). Se nessuna riga corrisponde, usa
-        l'ultima riga non vuota. Questo permette di raggruppare errori
-        simili anche se gli indirizzi di memoria o i percorsi file variano.
+        The signature is the first line containing "Error:" or "Exception:"
+        (truncated to 150 characters). If no line matches, uses
+        the last non-empty line. This allows grouping similar errors
+        even if memory addresses or file paths vary.
 
         Args:
-            error: Testo completo dell'errore.
+            error: Full error text.
 
         Returns:
-            Stringa firma (max 150 caratteri).
+            Signature string (max 150 characters).
         """
         lines = error.strip().splitlines()
         for line in lines:
@@ -125,30 +125,30 @@ class ErrorHistory:
 
 
 class OscillationDetector:
-    """Rileva pattern di oscillazione nelle iterazioni della pipeline.
+    """Detects oscillation patterns in pipeline iterations.
 
-    Confronta le impronte MD5 degli script prodotti a ogni iterazione
-    del loop di visione. Se lo script torna a uno stato già visto
-    (pattern ciclico A→B→A→B o A→B→C→A→B→C), segnala l'oscillazione.
+    Compares MD5 fingerprints of scripts produced at each iteration
+    of the vision loop. If the script returns to a previously seen state
+    (cyclic pattern A→B→A→B or A→B→C→A→B→C), reports the oscillation.
 
     Args:
-        max_history: Numero massimo di snapshot da mantenere in memoria.
+        max_history: Maximum number of snapshots to keep in memory.
     """
 
     def __init__(self, max_history: int = 5):
-        """Inizializza il detector con capacità massima.
+        """Initializes the detector with maximum capacity.
 
         Args:
-            max_history: Numero di snapshot recenti da conservare.
+            max_history: Number of recent snapshots to retain.
         """
         self._snapshots: List[str] = []
         self._max = max_history
 
     def add_snapshot(self, script: str):
-        """Aggiunge lo snapshot corrente (impronta MD5 dello script).
+        """Adds the current snapshot (MD5 fingerprint of the script).
 
         Args:
-            script: Testo completo dello script da tracciare.
+            script: Full script text to track.
         """
         sig = self._signature(script)
         if not sig:
@@ -158,13 +158,13 @@ class OscillationDetector:
             self._snapshots.pop(0)
 
     def is_oscillating(self) -> bool:
-        """Verifica se è in corso un'oscillazione (pattern A→B→A→B o cicli piu' lunghi).
+        """Checks if an oscillation is in progress (A→B→A→B pattern or longer cycles).
 
-        Controlla pattern di periodo 2 (A→B→A→B) con almeno 4 snapshot,
-        e pattern di periodo 3 (A→B→C→A→B→C) con almeno 6 snapshot.
+        Checks period-2 patterns (A→B→A→B) with at least 4 snapshots,
+        and period-3 patterns (A→B→C→A→B→C) with at least 6 snapshots.
 
         Returns:
-            True se è stato rilevato un pattern oscillatorio.
+            True if an oscillatory pattern has been detected.
         """
         if len(self._snapshots) < 4:
             return False
@@ -178,17 +178,17 @@ class OscillationDetector:
 
     @staticmethod
     def _signature(script: str) -> str:
-        """Calcola l'impronta MD5 normalizzata per confronto robusto.
+        """Calculates a normalized MD5 fingerprint for robust comparison.
 
-        Rimuove commenti, spazi ridondanti e righe vuote prima di
-        calcolare l'hash, in modo che variazioni cosmetiche (commenti,
-        spazi bianchi) non impediscano il rilevamento dell'oscillazione.
+        Removes comments, redundant spaces, and empty lines before
+        computing the hash, so that cosmetic variations (comments,
+        whitespace) do not prevent oscillation detection.
 
         Args:
-            script: Testo dello script.
+            script: Script text.
 
         Returns:
-            Impronta MD5 esadecimale, o stringa vuota se script vuoto.
+            Hexadecimal MD5 fingerprint, or empty string if script is empty.
         """
         if not script:
             return ""

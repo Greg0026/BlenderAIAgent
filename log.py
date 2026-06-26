@@ -1,11 +1,11 @@
-"""Logger strutturato per BlenderAIAgent.
+"""Structured logger for BlenderAIAgent.
 
-Fornisce un logger preconfigurato con formato timestamp, livello e messaggio.
-Tutti i moduli del progetto importano 'logger' da questo file per garantire
-output uniforme su console e (opzionalmente) su file.
+Provides a preconfigured logger with timestamp, level, and message format.
+All project modules import 'logger' from this file to ensure
+consistent output on console and (optionally) to file.
 
-L'utilizzo è intenzionalmente semplice: `from log import logger` ovunque,
-invece di configurare logger separati per ogni modulo.
+Usage is intentionally simple: `from log import logger` everywhere,
+instead of configuring separate loggers for each module.
 """
 
 import logging
@@ -18,19 +18,19 @@ def setup_logger(
     level: int = logging.INFO,
     log_file: str = None,
 ) -> logging.Logger:
-    """Crea e restituisce un logger configurato con output su console.
+    """Create and return a logger configured with console output.
 
-    Utile per avere un unico punto di configurazione del logging in tutto
-    il progetto. Se il logger esiste già (handlers presenti), lo restituisce
-    senza riconfigurarlo, evitando duplicati.
+    Useful for having a single logging configuration point throughout
+    the project. If the logger already exists (handlers present), it returns it
+    without reconfiguring it, avoiding duplicates.
 
     Args:
-        name: Nome del logger (usato da logging.getLogger).
-        level: Soglia minima di log (default: INFO).
-        log_file: Se specificato, scrive anche su file con level DEBUG.
+        name: Name of the logger (used by logging.getLogger).
+        level: Minimum log level (default: INFO).
+        log_file: If specified, also writes to file with DEBUG level.
 
     Returns:
-        Logger configurato con formato "[timestamp] [LIVELLO] messaggio".
+        Logger configured with format "[timestamp] [LEVEL] message".
     """
     logger = logging.getLogger(name)
     logger.setLevel(level)

@@ -1,253 +1,384 @@
-# BlenderAIAgent — 3D Print-Ready Pipeline
+# BlenderAIAgent
 
-Autonomous pipeline that transforms natural language descriptions into production-ready Blender Python scripts, then into STL files for 3D printing.
+**Autonomous pipeline that transforms natural language descriptions into production-ready Blender Python scripts and STL files for 3D printing.**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Blender 3.0+](https://img.shields.io/badge/Blender-3.0+-orange.svg)](https://www.blender.org/)
 
 ```
-"crea un vaso floreale con base esagonale, pareti 2mm, altezza 15cm"
+"create a flower vase with hexagonal base, 2mm walls, 15cm height"
     → bpy Python script → validated manifold mesh → STL
 ```
 
+---
+
+## Features
+
+- **Natural language → 3D model**: Describe what you want in plain English, get a ready-to-print STL
+- **Multi-stage LLM pipeline**: 10 specialized phases with dedicated system prompts
+- **Self-correcting**: Runtime error recovery, oscillation detection, and fallback cascade
+- **Visual quality control**: LLM-powered vision review of 4 orthographic renders
+- **Batch mode**: Autonomous headless generation of 40+ object categories
+- **RAG-enhanced**: VectorDB with semantic search for Blender API documentation
+
+---
+
+## Quick Start
+
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Configure your API keys
+cp .env.example .env
+# Edit .env with your keys and Blender path
+
+# 3. Generate your first 3D model
+python main.py -p "create a cylindrical vase, height 12cm, diameter 8cm, walls 2mm"
+
+# 4. Run the generated script in Blender
+blender --background --python 3dtest.py
+```
+
+---
+
 ## Architecture
 
-Multi-stage pipeline with 10 phases across 2 nested loops:
+### Pipeline Overview
 
 ```
 Prompt → [F1] Enhancement → [F1.5] Math Planner → [F2] Code Generation
-    ┌───────────────── VISION LOOP (max 8x) ─────────────────┐
-    │  [F3A] Morph Review → [F3B] Printability Review         │
-    │      ┌─────────── FIX LOOP (max 6x) ─────────┐          │
-    │      │  [F3.5] Static Analysis → [F6] Fix      │          │
-    │      │  [F4]   Blender Execute  → [F6] Fix      │          │
-    │      └──────────────────────────────────────────┘          │
-    │  [F4.5] Vision Review (LLM vision) → [F6-VIS] Vis Fix      │
-    └────────────────────────────────────────────────────────────┘
-    → Script Python Blender finale
+    ┌───────────────── VISION LOOP (up to 8 iterations) ─────────────────┐
+    │  [F3A] Morphological Review → [F3B] Printability Review             │
+    │      ┌─────────── FIX LOOP (up to 6 iterations) ──────────┐         │
+    │      │  [F3.5] Static Analysis → [F6] Targeted Fix          │         │
+    │      │  [F4]   Blender Execution → [F6] Targeted Fix         │         │
+    │      └──────────────────────────────────────────────────────┘         │
+    │  [F4.5] Vision Review (LLM vision) → [F6-VIS] Visual Fix              │
+    └───────────────────────────────────────────────────────────────────────┘
+    → Final Blender Python Script → [Optional] STL Export
 ```
 
-| Fase | Input | Output | Cosa fa |
-|------|-------|--------|---------|
-| **F1** | Prompt utente | Specifica tecnica | Traduce richiesta in parametri numerici, sceglie archetipo (A-E) |
-| **F1.5** | Specifica tecnica | Piano matematico | Produce formule r(z), punti di controllo, primitive con valori |
-| **F2** | Spec + piano + docs | Script bpy | Genera il primo script Blender completo |
-| **F3A** | Script + spec | Script corretto | Verifica fedelta' morfologica: formule, silhouette, fondo chiuso |
-| **F3B** | Script + spec | Script corretto | Verifica stampabilita': manifold, spessore, ordine modifier, API |
-| **F3.5** | Script | Errori/Warning | AST linter: sintassi, moduli pericolosi, euristiche 3D print |
-| **F4** | Script | Output Blender | Esecuzione headless con timeout; cattura traceback |
-| **F4.5** | Script + spec | Report visione | Render 4 viste ortografiche; LLM vision valuta estetica/fedelta' |
-| **F6** | Script + errore | Script corretto | Correzione errore runtime/statico con retrieval VectorDB |
-| **F6-VIS** | Script + report vis | Script corretto | Correzione problemi visivi/estetici |
+### Phases
 
-### Archetypes
+| Phase | Input | Output | Purpose |
+|-------|-------|--------|---------|
+| **F1** | User prompt | Technical specification | Translates request into numerical parameters and selects archetype |
+| **F1.5** | Specification | Mathematical plan | Produces parametric formulas (e.g., r(z) for revolutions) |
+| **F2** | Spec + Plan + Docs | `bpy` script | Generates the initial Blender script using RAG |
+| **F3A** | Script + Spec | Corrected script | Verifies morphological fidelity to the original prompt |
+| **F3B** | Script + Spec | Corrected script | Verifies 3D printability (manifold, thickness, modifier order) |
+| **F3.5** | Script | Errors / Warnings | AST linter: syntax, dangerous modules, 3D-print heuristics |
+| **F4** | Script | Blender output + validation | Headless execution with timeout; mesh geometry validation |
+| **F4.5** | Script + Spec | Vision report | Renders 4 orthographic views; LLM evaluates aesthetics |
+| **F6** | Script + Error | Corrected script | Runtime/static error correction with VectorDB retrieval |
+| **F6-VIS** | Script + Report | Corrected script | Fixes visual and aesthetic issues |
 
-Ogni oggetto viene classificato in uno dei 5 archetipi geometrici:
+### Geometric Archetypes
 
-| Code | Type | Examples | Method |
-|------|------|----------|--------|
-| **A** | Revolution | Bicchieri, vasi, ciotole | r(z) parametrico, N_SEGS>=128 |
-| **B** | Extrusion/Loft | Manici, profili | Curve NURBS/Bezier + sweep |
-| **C** | Boolean Composite | Scatole, carter | Primitive + booleane DIFFERENCE/UNION |
-| **D** | Voronoi/Fractal | Paralumi, sculture | bmesh + noise + subdivision |
-| **E** | Hybrid | Oggetti complessi | Mix di piu' approcci |
+Every object is classified into one of five geometric archetypes for specialized code generation:
+
+| Code | Type | Examples | Generation Method |
+|------|------|----------|-------------------|
+| **A** | Revolution | Cups, vases, bowls | `r(z)` parametric, `N_SEGS >= 128` |
+| **B** | Extrusion / Loft | Handles, profiles | NURBS / Bezier curves + sweep |
+| **C** | Boolean Composite | Boxes, housings | Primitives + Boolean DIFFERENCE / UNION |
+| **D** | Voronoi / Fractal | Lampshades, sculptures | `bmesh` + noise + subdivision |
+| **E** | Hybrid | Complex objects | Mix of multiple approaches |
+
+---
 
 ## Project Structure
 
 ```
 3dideaexp/
-├── main.py                 # Entry point: singolo prompt
-├── afk.py                  # Batch runner autonomo (40+ categorie)
-├── cfg.py                  # Configurazione centralizzata (legge .env)
-├── log.py                  # Logger strutturato (importa da ovunque)
-├── requirements.txt        # Dipendenze Python
-├── .env.example            # Template configurazione (da copiare in .env)
+├── main.py                  # Entry point: single prompt → STL
+├── afk.py                   # Autonomous batch runner (40+ categories)
+├── cfg.py                   # Centralized configuration (reads .env)
+├── log.py                   # Structured logger
+├── requirements.txt         # Python dependencies
+├── .env.example             # Configuration template
 ├── .gitignore
+├── LICENSE
 ├── README.md
+├── GUIDE.txt                # Full user guide
 │
-├── prompts/                # System prompts LLM (testo puro, modificabili)
-│   ├── f1_enhance.txt          # Prompt enhancement
-│   ├── f15_math_planner.txt    # Math shape planner
-│   ├── f2_codegen.txt          # Code generation
-│   ├── f3a_morph.txt           # Morphological review
-│   ├── f3b_printability.txt    # Printability & API safety
-│   ├── f6_fix.txt              # Static/runtime fix
-│   ├── f6_vis_fix.txt          # Vision fix
-│   ├── definition_of_done.txt  # Criteri di completamento (D1-D6)
-│   ├── shape_archetype_guide.txt  # Guida archetipi A-E
-│   └── common_pitfalls.txt     # 12 errori frequenti
+├── prompts/                 # LLM system prompts (editable plain text)
+│   ├── f1_enhance.txt
+│   ├── f15_math_planner.txt
+│   ├── f2_codegen.txt
+│   ├── f3a_morph.txt
+│   ├── f3b_printability.txt
+│   ├── f6_fix.txt
+│   ├── f6_vis_fix.txt
+│   ├── definition_of_done.txt
+│   ├── shape_archetype_guide.txt
+│   └── common_pitfalls.txt
 │
-├── core/                   # Pipeline core
-│   ├── __init__.py
-│   ├── orchestrator.py     # Orchestratore 8 fasi + loop annidati
-│   ├── phases.py           # Implementazioni fasi (F1-F6-VIS)
-│   └── llm.py              # Wrapper LLM con fallback cascade + cache prompt
+├── core/                    # Pipeline core
+│   ├── orchestrator.py      # Phase orchestrator with nested loops
+│   ├── phases.py            # Phase implementations (F1–F6-VIS)
+│   └── llm.py               # LLM wrapper with fallback cascade
 │
-├── utils/                  # Utility modules
-│   ├── __init__.py
-│   ├── runner.py           # Blender subprocess executor (asyncio)
-│   ├── code.py             # Estrazione codice, formattazione errori
-│   └── errors.py           # ErrorHistory + OscillationDetector
+├── utils/                   # Utilities
+│   ├── runner.py            # Blender subprocess executor (asyncio)
+│   ├── code.py              # Code extraction and error formatting
+│   └── errors.py            # ErrorHistory + OscillationDetector
 │
-├── analyzers/              # Analizzatori pre/post esecuzione
-│   ├── __init__.py
-│   ├── static_analyzer.py  # AST linter (sicurezza, sintassi, euristiche)
-│   └── mesh_validator.py   # Validazione mesh bmesh (non-manifold, volume)
+├── analyzers/               # Pre/post execution analyzers
+│   ├── static_analyzer.py   # AST linter
+│   └── mesh_validator.py    # bmesh mesh validation
 │
-├── review/                 # Revisione visiva
-│   ├── __init__.py
-│   └── vision_reviewer.py  # Render Blender + LLM vision (F4.5)
+├── review/
+│   └── vision_reviewer.py   # Blender render + LLM vision review
 │
-├── vectordb/               # Vector database
-│   ├── __init__.py
-│   └── vectordb.py         # ChromaDB + sentence-transformers (13 snippet interni)
+├── vectordb/
+│   └── vectordb.py          # ChromaDB + sentence-transformers
 │
-└── corpus/                 # Corpus builder (standalone)
-    ├── __init__.py
-    └── corpus_builder.py   # Raccolta snippet da 6 fonti (SE, GitHub, docs, forum)
+├── corpus/                  # Corpus builder (standalone)
+│   └── corpus_builder.py    # Snippet collection from 6 sources
+│
+└── tests/                   # Automated tests (pytest)
+    ├── test_cfg.py
+    ├── test_code.py
+    ├── test_errors.py
+    └── test_orchestrator.py
 ```
 
-## Setup
+---
 
-### 1. Install dependencies
+## Installation
+
+### Prerequisites
+
+- **Python 3.9+**
+- **Blender 3.0+** ([Download](https://www.blender.org/download/))
+- **Internet connection** (for LLM API calls)
+- Minimum **4 GB RAM** (GPU recommended for Vision Review)
+
+### Step 1: Install Python Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Extra per corpus_builder:
+Extra dependencies for `corpus_builder.py`:
 ```bash
 pip install requests beautifulsoup4 PyGitHub
 ```
 
-### 2. Configure environment
+### Step 2: Configure Environment
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your API keys (see `.env.example` for all options):
+Edit `.env` with your configuration:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NVIDIA_API_KEY` | Yes | NVIDIA NIM key (primario per codegen) |
-| `OPENROUTER_API_KEY` | Yes | OpenRouter key (fallback + batch) |
-| `BLENDER_PATH` | Yes | Path assoluto eseguibile Blender |
-| `LLM_MODEL_ID` | No | Modello primario (default: z-ai/glm-5.1) |
-| `LLM_FALLBACK_MODELS` | No | Modelli fallback separati da virgola |
-| `GITHUB_TOKEN` | No | Per corpus_builder.py (5000 req/h vs 60 anonimo) |
+| `NVIDIA_API_KEY` | At least one | NVIDIA NIM API key |
+| `OPENROUTER_API_KEY` | API key | OpenRouter API key |
+| `OPENCODE_ZEN_API_KEY` | | OpenCode Zen API key |
+| `BLENDER_PATH` | Yes | Absolute path to Blender executable |
+| `LLM_MODEL_ID` | No | Primary model (default: `z-ai/glm-5.1`) |
+| `LLM_VISION_MODEL` | No | Vision review model |
+| `LLM_FALLBACK_MODELS` | No | Comma-separated fallback models |
+| `GITHUB_TOKEN` | No | For `corpus_builder.py` (5000 req/h vs 60 anonymous) |
 
-### 3. Verify Blender
+### Step 3: Verify Blender
 
 ```bash
 blender --version
 ```
-Blender 3.0+ required. Set `BLENDER_PATH` in `.env` if not in PATH.
+
+If Blender is not in your PATH, set `BLENDER_PATH` in `.env`:
+```
+BLENDER_PATH=/usr/local/blender/blender          # Linux / macOS
+BLENDER_PATH=C:\Program Files\Blender Foundation\Blender 4.0\blender.exe   # Windows
+```
+
+---
 
 ## Usage
 
-### Single prompt
+### Single Prompt
+
+Generate a 3D model from a text description:
 
 ```bash
+# Using the default prompt
 python main.py
+
+# Custom prompt via command line
+python main.py -p "create a flower vase with hexagonal base, height 15cm"
+python main.py --prompt "create a desk pen holder with 3 compartments" -o output.py
+
+# Custom prompt via environment variable
+PROMPT="create a modern table lamp with voronoi pattern, height 25cm" python main.py
 ```
 
-Custom prompt via CLI arg o env var:
-```bash
-python main.py --prompt "crea un portapenne da scrivania con 3 scomparti, design moderno"
-python main.py -p "crea un vaso floreale" -o vaso.py
-PROMPT="crea un portapenne da scrivania con 3 scomparti, design moderno. staminalo in 3D." python main.py
-```
+The output is a Blender Python script (default: `3dtest.py`). Run it:
 
-Output: `3dtest.py` (default, o `-o` / `OUTPUT_FILE` env var). Esegui lo script:
 ```bash
 blender --background --python 3dtest.py
 ```
 
-### Batch (AFK) mode
+### Batch Mode (AFK)
 
-Genera continuamente modelli 3D per categorie casuali (40+ categorie):
+Continuously generate 3D models across 40+ categories:
 
 ```bash
 python afk.py
 ```
 
-Configurable via env vars:
-- `BATCH_MAX_JOBS` — max job (vuoto = illimitato)
-- `BATCH_PAUSE` — secondi tra job (default: 10)
-- `BATCH_OUTPUT_DIR` — directory output (default: output_scripts/)
+Configuration via environment variables:
 
-### Build corpus
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BATCH_MAX_JOBS` | (unlimited) | Maximum number of jobs |
+| `BATCH_PAUSE` | 10 | Seconds between jobs |
+| `BATCH_OUTPUT_DIR` | `output_scripts/` | Output directory |
 
-Raccogli snippet bpy da 6 fonti per il VectorDB:
+### Build the VectorDB Corpus
+
+Collect `bpy` snippets from 6 sources to improve RAG quality:
 
 ```bash
-python corpus_builder.py -v
+python corpus_builder.py -v          # Full collection
+python corpus_builder.py --index-only    # Indexing only
+python corpus_builder.py --load-only     # Reuse existing corpus.jsonl
 ```
 
-Flags:
-- `--index-only` — solo indicizzazione ChromaDB
-- `--load-only` — riusa corpus.jsonl esistente
-- `--no-github` — salta GitHub
-- `--github-token` — token GitHub (o env `GITHUB_TOKEN`)
+### Speed Test
 
-## How It Works
+Benchmark API response times across configured models:
 
-### Pipeline Details
+```bash
+python -m tests.speed_test
+python -m tests.speed_test --model deepseek-ai/deepseek-v4-flash
+python -m tests.speed_test --timeout 180
+```
 
-1. **F1 - Enhancement**: Il prompt utente viene trasformato in una specifica tecnica strutturata con archetipo, parametri numerici, e regole di stampabilita'.
+---
 
-2. **F1.5 - Math Planner**: Produce formule parametriche esplicite (es. r(z) = 20 + 5*sin(z*pi/H) per rivoluzioni).
+## How the Pipeline Works
 
-3. **F2 - Code Generation**: LLM genera il primo script bpy basato su specifica + piano + documentazione VectorDB.
+1. **F1 — Prompt Enhancement**: The user's natural language request is transformed into a structured technical specification with exact numerical parameters, selected archetype (A–E), and printability constraints.
 
-4. **F3A + F3B - Review**: Due LLM specializzati verificano fedelta' morfologica e stampabilita'. Se OK, script invariato; se no, corretto.
+2. **F1.5 — Mathematical Planning**: The specification is converted into explicit parametric formulas — for example, `r(z) = 20 + 5*sin(z*π/H)` for a revolution archetype.
 
-5. **F3.5 - Static Analysis**: AST linter controlla sintassi, moduli pericolosi, euristiche 3D print (ordine modifier, weld, normals).
+3. **F2 — Code Generation**: The LLM generates a complete Blender Python script based on the specification, mathematical plan, and VectorDB documentation (RAG).
 
-6. **F4 - Execution**: Esegue script in Blender headless. Se fallisce, F6 corregge con l'aiuto del VectorDB.
+4. **F3A + F3B — Dual Review**: Two specialized LLM reviewers examine the script. F3A checks morphological fidelity; F3B verifies printability and API safety. If both pass, the script proceeds unchanged.
 
-7. **F4.5 - Vision Review**: Render 4 viste ortografiche + LLM vision valuta estetica e fedelta'.
+5. **F3.5 — Static Analysis**: An AST-based linter checks syntax validity, dangerous module usage, and 3D-printing heuristics (modifier order, weld operations, normal orientation).
 
-8. **F6 - Targeted Fix**: Correzione errori con storia (ErrorHistory) per evitare loop infiniti.
+6. **F4 — Execution**: The script runs in headless Blender with a configurable timeout. Mesh validation checks for non-manifold geometry, zero volume, and degenerate faces.
+
+7. **F4.5 — Vision Review**: Four orthographic renders are generated and analyzed by an LLM vision model for aesthetic quality and fidelity to the original prompt.
+
+8. **F6 — Targeted Fix**: Runtime errors and static warnings are corrected with VectorDB-assisted retrieval and error history tracking to prevent repeated failures.
 
 ### Stability Mechanisms
 
-- **OscillationDetector**: Rileva pattern ciclici (A->B->A->B) e forza la terminazione
-- **ErrorHistory**: Tiene traccia degli ultimi 10 errori; passa "NON RIPETERE" al LLM
-- **Fallback script**: Se la pipeline non produce risultati, genera un cubo base con Solidify + Weld
-- **Model cascade**: Se il modello primario fallisce, prova fino a 6 fallback in ordine di capacita'
-- **Weak model filter**: Rimuove dalla cascade modelli <7B parametri (phi-4-mini, llama-3.2-1b)
+| Mechanism | Description |
+|-----------|-------------|
+| **OscillationDetector** | Detects cyclic fix patterns (A → B → A → B) and forces termination |
+| **ErrorHistory** | Tracks last 10 errors; passes "DO NOT REPEAT" context to the LLM |
+| **Fallback script** | If the pipeline produces no result, generates a base cube with Solidify + Weld |
+| **Model cascade** | Tries up to 6 fallback models if the primary model fails |
+| **Weak model filter** | Automatically excludes models below 7B parameters from the cascade |
+| **VectorDB RAG** | Semantic retrieval of `bpy` documentation snippets for context-aware generation |
 
-## Requirements
+---
 
-```
-openai>=1.0.0
-aiohttp
-python-dotenv
-chromadb
-sentence-transformers
-```
+## Configuration Reference
+
+All configuration lives in `.env`. See `.env.example` for the complete template.
+
+### Pipeline Control
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ERROR_LOOPS` | 8 | Maximum vision loop iterations |
+| `FIX_LOOPS` | 6 | Maximum fix loop iterations |
+| `PHASE_TIMEOUT` | 900 | Overall timeout per pipeline phase (seconds) |
+| `FIRST_CHUNK_TIMEOUT` | 120 | Timeout for first LLM token (seconds) |
+| `MIN_CODE_LENGTH` | 400 | Minimum acceptable code length |
+| `VISION_REVIEW_ENABLED` | `true` | Enable/disable vision review |
+| `MAX_MESH_FIX_ATTEMPTS` | 3 | Maximum mesh fix attempts |
+| `STATIC_MAX_LEN` | 40000 | Maximum static analysis input size |
+
+### Retry Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_BASE_DELAY` | 3.0 | Base delay between retries (seconds) |
+| `API_MAX_RETRIES` | 3 | Maximum API retries |
+| `API_INTER_PAUSE` | 8.0 | Pause between API calls (seconds) |
+| `RETRY_BACKOFF_S` | 1.0 | Backoff increment per retry (seconds) |
+
+### Blender
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BLENDER_PATH` | — | Absolute path to Blender executable |
+| `BLENDER_TIMEOUT` | 120 | Execution timeout (seconds) |
+
+---
 
 ## Troubleshooting
 
-| Problema | Causa probabile | Soluzione |
-|----------|----------------|-----------|
-| `EnvironmentError: Nessuna API key trovata` | .env mancante o incompleto | Copia `.env.example` in `.env` e inserisci le chiavi |
-| `FileNotFoundError: blender non trovato` | BLENDER_PATH errato | Imposta il path assoluto in `.env` |
-| `ImportError: chromadb` | Dipendenze mancanti | `pip install chromadb sentence-transformers` |
-| `TIMEOUT: Blender non ha terminato` | Script in loop o Blender lento | Aumenta `BLENDER_TIMEOUT` in `.env` |
-| `Vision review fallita` | GPU non disponibile | Imposta `VISION_REVIEW_ENABLED=false` |
-| `Tutti i modelli della cascata hanno fallito` | API key invalida o quota esaurita | Verifica `NVIDIA_API_KEY` o `OPENROUTER_API_KEY` |
-| `batch_max_jobs non funziona` | Valore vuoto = illimitato | Imposta `BATCH_MAX_JOBS=10` (o il numero desiderato) |
+| Problem | Likely Cause | Solution |
+|---------|--------------|----------|
+| `EnvironmentError: No API key found` | `.env` missing or incomplete | Copy `.env.example` to `.env` and enter valid API keys |
+| `FileNotFoundError: blender not found` | `BLENDER_PATH` incorrect | Set the absolute path to Blender in `.env` |
+| `ImportError: chromadb` | Missing dependencies | Run `pip install chromadb sentence-transformers` |
+| `TIMEOUT: Blender did not finish` | Script in infinite loop or Blender is slow | Increase `BLENDER_TIMEOUT` in `.env` |
+| `Vision review failed` | GPU unavailable or render error | Set `VISION_REVIEW_ENABLED=false` in `.env` |
+| `All models in cascade failed` | Invalid API key or quota exhausted | Verify API keys and check quota on provider dashboard |
+| `batch_max_jobs not working` | Empty value means unlimited | Set `BATCH_MAX_JOBS=10` (or your desired number) |
+| `First token timeout` | API provider is slow | Increase `FIRST_CHUNK_TIMEOUT` in `.env` |
+| Poor quality output | Weak model or missing context | Check `LLM_MODEL_ID`; add VectorDB snippets via `corpus_builder.py` |
+
+---
 
 ## Key Design Decisions
 
-- **1 BU = 1 mm**: Coerenza con gli slicer (Cura, PrusaSlicer si aspettano mm). Global scale in export STL = 1000.
-- **Solidify PRIMA di Boolean**: L'ordine corretto per garantire mesh manifold. Prima lo spessore, poi il taglio.
-- **Prompt separati in prompts/**: I system prompt sono file .txt modificabili senza toccare codice Python.
-- **VectorDB + semantic search**: Retrieval Augmented Generation per documentazione bpy invece di hardcoding.
-- **Vision Review con LLM**: 4 render ortografici + LLM vision (kimi-k2.6/gpt-4o) per valutazione estetica.
-- **Fallback cascade**: 7 modelli in ordine di capacita'. Se il top fallisce, si scende.
-- **corpus_builder.py standalone**: Non fa parte della pipeline core; script separato per raccolta dataset.
+- **1 BU = 1 mm**: Consistent measurement with slicers (Cura, PrusaSlicer). Global scale in STL export = 1000.
+- **Solidify BEFORE Boolean**: Ensures manifold mesh — thickness first, then cutting operations.
+- **Separate prompt files**: System prompts are `.txt` files in `prompts/`, editable without touching Python code.
+- **VectorDB + semantic search**: Retrieval-Augmented Generation for `bpy` documentation instead of hardcoded snippets.
+- **Vision Review with LLM**: Four orthographic renders analyzed by a vision-capable LLM for aesthetic evaluation.
+- **Fallback cascade**: Seven models in order of capability. Graceful degradation if the primary model fails.
+- **Standalone corpus builder**: `corpus_builder.py` is independent of the core pipeline, for dataset collection.
+
+---
+
+## Testing
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run specific test suite
+pytest tests/test_cfg.py -v
+pytest tests/test_orchestrator.py -v
+
+# Run with coverage (if pytest-cov is installed)
+pytest tests/ --cov=. --cov-report=term
+```
+
+---
 
 ## License
 
-MIT — see LICENSE file.
+MIT — see [LICENSE](LICENSE) for the full text.
+
+---
+
+## Full Documentation
+
+See [GUIDE.txt](GUIDE.txt) for the complete user guide covering installation, configuration, pipeline architecture, troubleshooting, and prompt examples.

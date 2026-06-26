@@ -1,25 +1,25 @@
-"""Pipeline di raccolta snippet bpy per il VectorDB della pipeline 3Didea.
+"""bpy snippet collection pipeline for the 3Didea pipeline VectorDB.
 
-Raccoglie snippet di codice Blender Python API da molteplici fonti:
-  1. Blender Stack Exchange (API ufficiale StackExchange v2.3)
-  2. GitHub -- repo curati (PyGitHub, lista selezionata a mano)
-  3. GitHub -- code search (PyGitHub, ricerca dinamica su tutto GitHub)
-  4. Blender API Docs (html da docs.blender.org con scoperta automatica pagine)
+Collects Blender Python API code snippets from multiple sources:
+  1. Blender Stack Exchange (official StackExchange v2.3 API)
+  2. GitHub -- curated repos (PyGitHub, hand-picked list)
+  3. GitHub -- code search (PyGitHub, dynamic search across all GitHub)
+  4. Blender API Docs (html from docs.blender.org with automatic page discovery)
   5. Blender Artists Forum (Discourse API)
-  6. Blender Official Examples (repo GitHub blender/blender)
+  6. Blender Official Examples (GitHub repo blender/blender)
 
-Output: corpus.jsonl -- un JSON per riga, formato compatibile con vectordb.py.
+Output: corpus.jsonl -- one JSON per line, compatible with vectordb.py format.
 
-Usato da:
-  - build_corpus() chiamata direttamente o via CLI
-  - load_corpus_into_vectordb() per caricare il corpus nel VectorDB Chroma
+Used by:
+  - build_corpus() called directly or via CLI
+  - load_corpus_into_vectordb() to load the corpus into Chroma VectorDB
 
-Installazione dipendenze:
+Dependencies:
   pip install requests beautifulsoup4 PyGitHub python-dotenv
 
-Autenticazione necessaria (fortemente consigliata):
-  GITHUB_TOKEN=ghp_xxxxxxxxxxxx    (via .env o env var)
-  STACKEXCHANGE_KEY=xxxxxxxxxxxx    (via .env o env var, gratuita)
+Authentication required (strongly recommended):
+  GITHUB_TOKEN=ghp_xxxxxxxxxxxx    (via .env or env var)
+  STACKEXCHANGE_KEY=xxxxxxxxxxxx    (via .env or env var, free)
 """
 
 from __future__ import annotations
@@ -57,10 +57,10 @@ log = logging.getLogger("corpus_builder")
 
 
 def _setup_logging(verbose: bool = False) -> None:
-    """Configura il logging di base per la pipeline di raccolta.
+    """Configures basic logging for the collection pipeline.
 
     Args:
-        verbose: Se True, usa livello DEBUG invece di INFO.
+        verbose: If True, uses DEBUG level instead of INFO.
     """
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
@@ -70,13 +70,13 @@ def _setup_logging(verbose: bool = False) -> None:
 
 
 def _load_dotenv(path: Path = Path(".env")) -> None:
-    """Carica variabili da un file .env locale (mai versionato) se presente.
+    """Loads variables from a local .env file (never versioned) if present.
 
-    Tenta prima python-dotenv (se installato), poi fallback manuale.
-    Usato per leggere GITHUB_TOKEN, STACKEXCHANGE_KEY, ecc.
+    Tries python-dotenv first (if installed), then manual fallback.
+    Used to read GITHUB_TOKEN, STACKEXCHANGE_KEY, etc.
 
     Args:
-        path: Percorso al file .env.
+        path: Path to the .env file.
     """
     try:
         from dotenv import load_dotenv as _ld
@@ -228,17 +228,17 @@ COLLECTION_MAP = {
 
 @dataclass
 class Snippet:
-    """Rappresenta un singolo snippet di codice bpy raccolto.
+    """Represents a single collected bpy code snippet.
 
     Attributes:
-        id: Identificatore univoco basato su hash del contenuto.
-        collection: "official_docs", "community_code", o "error_patterns".
-        description: Descrizione testuale dello snippet.
-        code: Codice Python con chiamate bpy.
-        tags: Lista di tag per retrieval semantico.
-        source: Fonte originale (stackexchange, github, blender_docs, ecc.).
-        source_url: URL della fonte originale.
-        score: Punteggio di affidabilita (stelle GitHub, score SE, o 100 per docs).
+        id: Unique identifier based on content hash.
+        collection: "official_docs", "community_code", or "error_patterns".
+        description: Textual description of the snippet.
+        code: Python code with bpy calls.
+        tags: List of tags for semantic retrieval.
+        source: Original source (stackexchange, github, blender_docs, etc.).
+        source_url: URL of the original source.
+        score: Reliability score (GitHub stars, SE score, or 100 for docs).
     """
     id: str
     collection: str
@@ -260,23 +260,23 @@ class Snippet:
 def _request_with_retry(
     session: requests.Session, method: str, url: str, max_retries: int = 5, **kwargs
 ) -> requests.Response:
-    """Esegue una richiesta HTTP con retry e backoff esponenziale.
+    """Executes an HTTP request with retry and exponential backoff.
 
-    Ritenta su errori di rete, HTTP 429 (rate limit) e 5xx, con
-    backoff esponenziale e rispetto dell'header Retry-After.
+    Retries on network errors, HTTP 429 (rate limit) and 5xx, with
+    exponential backoff and respect for the Retry-After header.
 
     Args:
-        session: Sessione requests riutilizzabile.
-        method: Metodo HTTP (GET, POST, ecc.).
-        url: URL della richiesta.
-        max_retries: Numero massimo di tentativi.
-        **kwargs: Argomenti aggiuntivi per session.request().
+        session: Reusable requests session.
+        method: HTTP method (GET, POST, etc.).
+        url: Request URL.
+        max_retries: Maximum number of attempts.
+        **kwargs: Additional arguments for session.request().
 
     Returns:
-        Response di requests se la richiesta ha successo.
+        Requests Response if the request succeeds.
 
     Raises:
-        Ultima eccezione incontrata se tutti i tentativi falliscono.
+        Last encountered exception if all attempts fail.
     """
     kwargs.setdefault("timeout", 15)
     backoff = 2.0
@@ -289,7 +289,7 @@ def _request_with_retry(
             last_exc = e
             if attempt == max_retries:
                 raise
-            log.warning(f"[HTTP] Errore rete su {url}: {e} -- retry tra {backoff:.0f}s ({attempt}/{max_retries})")
+            log.warning(f"[HTTP] Network error on {url}: {e} -- retry in {backoff:.0f}s ({attempt}/{max_retries})")
             time.sleep(backoff)
             backoff *= 2
             continue
@@ -311,23 +311,23 @@ def _request_with_retry(
 
 
 def _gh_call(gh: "Github", func, *args, max_retries: int = 5, **kwargs):
-    """Esegue una chiamata PyGitHub gestendo il rate limit automaticamente.
+    """Executes a PyGitHub call with automatic rate limit handling.
 
-    Se la quota GitHub e' esaurita, attende fino al reset (max 15 min)
-    invece di fallire silenziosamente. Ritenta anche su 403/429.
+    If the GitHub quota is exhausted, waits until the reset (max 15 min)
+    instead of failing silently. Also retries on 403/429.
 
     Args:
-        gh: Istanza Github autenticata.
-        func: Funzione PyGitHub da chiamare.
-        *args: Args posizionali per func.
-        max_retries: Numero massimo di tentativi.
-        **kwargs: Args keyword per func.
+        gh: Authenticated Github instance.
+        func: PyGitHub function to call.
+        *args: Positional args for func.
+        max_retries: Maximum number of attempts.
+        **kwargs: Keyword args for func.
 
     Returns:
-        Risultato della chiamata PyGitHub.
+        Result of the PyGitHub call.
 
     Raises:
-        Ultima eccezione se tutti i tentativi falliscono.
+        Last exception if all attempts fail.
     """
     last_exc: Exception | None = None
     for attempt in range(1, max_retries + 1):
@@ -341,31 +341,31 @@ def _gh_call(gh: "Github", func, *args, max_retries: int = 5, **kwargs):
             except Exception:
                 wait = 60
             wait = min(wait, 900)
-            log.warning(f"[GH] Rate limit raggiunto, attendo {wait:.0f}s (tentativo {attempt}/{max_retries})")
+            log.warning(f"[GH] Rate limit reached, waiting {wait:.0f}s (attempt {attempt}/{max_retries})")
             time.sleep(wait)
         except GithubException as e:
             last_exc = e
             if getattr(e, "status", None) in (403, 429) and attempt < max_retries:
                 wait = min(2 ** attempt * 5, 120)
-                log.warning(f"[GH] Errore HTTP {e.status}, retry tra {wait}s ({attempt}/{max_retries}): {e}")
+                log.warning(f"[GH] HTTP error {e.status}, retry in {wait}s ({attempt}/{max_retries}): {e}")
                 time.sleep(wait)
             else:
                 raise
-    raise last_exc or RuntimeError("chiamata GitHub API fallita dopo i retry")
+    raise last_exc or RuntimeError("GitHub API call failed after retries")
 
 
 def _extract_bpy_functions(code: str) -> list[str]:
-    """Spezza un file lungo in funzioni/metodi contenenti chiamate bpy.
+    """Splits a long file into functions/methods containing bpy calls.
 
-    Estrae solo definizioni top-level e metodi di classe (non ast.walk
-    sull'intero albero) per evitare chunk duplicati come una classe
-    intera + ognuno dei suoi metodi separatamente.
+    Extracts only top-level definitions and class methods (not ast.walk
+    over the entire tree) to avoid duplicate chunks like a full class
+    + each of its methods separately.
 
     Args:
-        code: Codice Python sorgente.
+        code: Source Python code.
 
     Returns:
-        Lista di chunk di codice che soddisfano MIN_CODE_LINES e MAX_CODE_LINES.
+        List of code chunks satisfying MIN_CODE_LINES and MAX_CODE_LINES.
     """
     try:
         tree = ast.parse(code)
@@ -399,25 +399,25 @@ def _extract_bpy_functions(code: str) -> list[str]:
 
 
 def _has_bpy(code: str) -> bool:
-    """Verifica se il codice contiene almeno MIN_BPY_CALLS chiamate bpy.
+    """Checks if the code contains at least MIN_BPY_CALLS bpy calls.
 
     Args:
-        code: Codice Python da controllare.
+        code: Python code to check.
 
     Returns:
-        True se il codice ha chiamate bpy. sufficienti.
+        True if the code has sufficient bpy. calls.
     """
     return bool(re.search(r'\bbpy\.', code)) and code.count("bpy.") >= MIN_BPY_CALLS
 
 
 def _clean_code(code: str) -> str:
-    """Rimuove artefatti HTML e normalizza indentazione del codice.
+    """Removes HTML artifacts and normalizes code indentation.
 
     Args:
-        code: Codice grezzo (potenzialmente con entità HTML).
+        code: Raw code (potentially with HTML entities).
 
     Returns:
-        Codice pulito e normalizzato.
+        Cleaned and normalized code.
     """
     code = code.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
     code = code.replace("&#39;", "'").replace("&quot;", '"')
@@ -436,13 +436,13 @@ def _clean_code(code: str) -> str:
 
 
 def _infer_collection(text: str) -> str:
-    """Inferisce la collection VectorDB dal testo (descrizione + codice).
+    """Infers the VectorDB collection from text (description + code).
 
     Args:
-        text: Testo combinato descrizione + codice.
+        text: Combined description + code text.
 
     Returns:
-        "official_docs", "error_patterns", o "community_code" (default).
+        "official_docs", "error_patterns", or "community_code" (default).
     """
     text_lower = text.lower()
     for keyword, collection in COLLECTION_MAP.items():
@@ -452,40 +452,40 @@ def _infer_collection(text: str) -> str:
 
 
 def _make_id(source: str, text: str) -> str:
-    """Genera un id stabile basato su hash MD5 del contenuto.
+    """Generates a stable id based on MD5 hash of the content.
 
     Args:
-        source: Nome della fonte (es. "se", "gh", "docs").
-        text: Contenuto da cui generare l'hash.
+        source: Source name (e.g. "se", "gh", "docs").
+        text: Content to generate the hash from.
 
     Returns:
-        Stringa id nel formato "<source>_<hash10>".
+        Id string in format "<source>_<hash10>".
     """
     h = hashlib.md5(text.encode()).hexdigest()[:10]
     return f"{source}_{h}"
 
 
 class _SEQuotaExhausted(RuntimeError):
-    """Quota giornaliera Stack Exchange esaurita (error_id nella risposta API).
+    """Stack Exchange daily quota exhausted (error_id in API response).
 
-    Distinta da un generico RuntimeError per interrompere la raccolta
-    su TUTTI i tag rimanenti subito (la quota e' globale per IP/key,
-    non per tag: continuare a provare e' inutile).
+    Distinct from a generic RuntimeError to stop collection on ALL
+    remaining tags immediately (the quota is global per IP/key,
+    not per tag: continuing to try is futile).
     """
     pass
 
 
 def _extract_tags(code: str, description: str) -> list[str]:
-    """Estrae tag rilevanti dal codice e dalla descrizione di uno snippet.
+    """Extracts relevant tags from snippet code and description.
 
-    Combina keyword predefinite e nomi di chiamate bpy trovate nel codice.
+    Combines predefined keywords and bpy call names found in the code.
 
     Args:
-        code: Codice Python dello snippet.
-        description: Descrizione testuale.
+        code: Python code of the snippet.
+        description: Textual description.
 
     Returns:
-        Lista ordinata di tag (max 10).
+        Sorted list of tags (max 10).
     """
     tags = set()
     text = (code + " " + description).lower()
@@ -509,18 +509,18 @@ def _extract_tags(code: str, description: str) -> list[str]:
 
 
 class StackExchangeCollector:
-    """Collettore di snippet da Blender Stack Exchange via API v2.3.
+    """Collector for snippets from Blender Stack Exchange via API v2.3.
 
-    Recupera risposte accettate o con score > MIN_SCORE_SE che contengono
-    blocchi di codice Python con bpy.
+    Retrieves accepted answers or those with score > MIN_SCORE_SE that contain
+    Python code blocks with bpy.
 
-    Senza API key: 300 richieste/giorno, condivise per IP fra tutte le
-    app non registrate.
-    Con API key (gratuita): 10.000 richieste/giorno.
+    Without API key: 300 requests/day, shared per IP among all
+    unregistered apps.
+    With free API key: 10,000 requests/day.
 
     Args:
-        quota: Numero massimo di snippet da raccogliere.
-        api_key: Stack Exchange API key opzionale.
+        quota: Maximum number of snippets to collect.
+        api_key: Optional Stack Exchange API key.
     """
 
     BASE_URL = "https://api.stackexchange.com/2.3"
@@ -533,22 +533,22 @@ class StackExchangeCollector:
         self.session = requests.Session()
         self.session.headers["Accept-Encoding"] = "gzip"
         if api_key:
-            log.info("[SE] API key presente (tetto 10.000 richieste/giorno)")
+            log.info("[SE] API key present (10,000 requests/day limit)")
         else:
-            log.warning("[SE] Nessuna API key: tetto 300 richieste/giorno condivise per IP.")
+            log.warning("[SE] No API key: 300 requests/day shared per IP limit.")
 
     def _get(self, endpoint: str, params: dict) -> dict:
-        """Esegue una GET alla Stack Exchange API.
+        """Executes a GET to the Stack Exchange API.
 
         Args:
-            endpoint: Path API (es. /questions).
-            params: Parametri query string.
+            endpoint: API path (e.g. /questions).
+            params: Query string parameters.
 
         Returns:
-            JSON response parsato.
+            Parsed JSON response.
 
         Raises:
-            _SEQuotaExhausted se la quota giornaliera e' esaurita.
+            _SEQuotaExhausted if the daily quota is exhausted.
         """
         params["site"] = self.SITE
         if self.api_key:
@@ -560,26 +560,26 @@ class StackExchangeCollector:
 
         if "error_id" in data:
             raise _SEQuotaExhausted(
-                f"[SE] Errore API (error_id={data.get('error_id')}): "
+                f"[SE] API error (error_id={data.get('error_id')}): "
                 f"{data.get('error_name')} -- {data.get('error_message')}"
             )
 
         if data.get("quota_remaining", 999) < 10:
-            log.warning(f"[SE] Quota API quasi esaurita ({data.get('quota_remaining')} richieste rimaste)")
+            log.warning(f"[SE] API quota nearly exhausted ({data.get('quota_remaining')} requests remaining)")
         backoff = data.get("backoff")
         if backoff:
-            log.info(f"[SE] L'API chiede di rallentare, attendo {backoff}s extra")
+            log.info(f"[SE] API requests to slow down, waiting {backoff}s extra")
             time.sleep(backoff + 1)
         return data
 
     def _extract_code_blocks(self, html_body: str) -> list[str]:
-        """Estrae blocchi <code> da HTML Stack Exchange.
+        """Extracts <code> blocks from Stack Exchange HTML.
 
         Args:
-            html_body: Body HTML della risposta SE.
+            html_body: HTML body of the SE answer.
 
         Returns:
-            Lista di blocchi di codice puliti con chiamate bpy.
+            List of cleaned code blocks with bpy calls.
         """
         soup = BeautifulSoup(html_body, "html.parser")
         blocks = []
@@ -592,10 +592,10 @@ class StackExchangeCollector:
         return blocks
 
     def collect(self) -> list[Snippet]:
-        """Esegue la raccolta da Stack Exchange per tutti i tag configurati.
+        """Performs collection from Stack Exchange for all configured tags.
 
         Returns:
-            Lista di snippet raccolti (gia' deduplicati per hash).
+            List of collected snippets (already deduplicated by hash).
         """
         snippets: list[Snippet] = []
         seen_hashes: set[str] = set()
@@ -607,7 +607,7 @@ class StackExchangeCollector:
 
             page = 1
             while len(snippets) < self.quota:
-                log.info(f"[SE] Tag '{tag}' pagina {page} ({len(snippets)}/{self.quota})")
+                log.info(f"[SE] Tag '{tag}' page {page} ({len(snippets)}/{self.quota})")
 
                 try:
                     data = self._get("/questions", {
@@ -618,11 +618,11 @@ class StackExchangeCollector:
                         "page":     page,
                     })
                 except _SEQuotaExhausted as e:
-                    log.error(f"[SE] Quota giornaliera esaurita, interrompo: {e}")
+                    log.error(f"[SE] Daily quota exhausted, stopping: {e}")
                     quota_hit = True
                     break
                 except Exception as e:
-                    log.warning(f"[SE] Errore richiesta domande: {e}")
+                    log.warning(f"[SE] Error requesting questions: {e}")
                     break
 
                 questions = data.get("items", [])
@@ -642,23 +642,23 @@ class StackExchangeCollector:
                         },
                     )
                 except _SEQuotaExhausted as e:
-                    log.error(f"[SE] Quota giornaliera esaurita, interrompo: {e}")
+                    log.error(f"[SE] Daily quota exhausted, stopping: {e}")
                     quota_hit = True
                     break
                 except requests.exceptions.HTTPError as e:
                     if e.response is not None and e.response.status_code == 400:
-                        log.warning(f"[SE] filter=withbody rifiutato, ritento senza filter: {e}")
+                        log.warning(f"[SE] filter=withbody rejected, retrying without filter: {e}")
                         try:
                             answers_data = self._get(
                                 f"/questions/{';'.join(question_ids)}/answers",
                                 {"sort": "votes", "order": "desc", "pagesize": 100},
                             )
                         except _SEQuotaExhausted as e2:
-                            log.error(f"[SE] Quota esaurita: {e2}")
+                            log.error(f"[SE] Quota exhausted: {e2}")
                             quota_hit = True
                             break
                         except Exception as e2:
-                            log.warning(f"[SE] Errore richiesta risposte (fallback): {e2}")
+                            log.warning(f"[SE] Error requesting answers (fallback): {e2}")
                             break
                     else:
                         raise
@@ -703,22 +703,22 @@ class StackExchangeCollector:
                     break
                 page += 1
 
-        log.info(f"[SE] Raccolti {len(snippets)} snippet")
+        log.info(f"[SE] Collected {len(snippets)} snippets")
         return snippets
 
 
 class GitHubCollector:
-    """Collettore di snippet da repo GitHub selezionati manualmente.
+    """Collector for snippets from manually selected GitHub repos.
 
-    Usa PyGitHub per accedere ai file .py dei repo in GITHUB_REPOS
-    ed estrarre funzioni/metodi con chiamate bpy.
+    Uses PyGitHub to access .py files from repos in GITHUB_REPOS
+    and extract functions/methods with bpy calls.
 
-    Richiede un token GitHub per rate limit adeguato (60 req/h anonimo
-    bastano a malapena per un repo piccolo).
+    Requires a GitHub token for adequate rate limit (60 req/h anonymous
+    barely suffices for a small repo).
 
     Args:
-        token: GitHub personal access token (opzionale ma consigliato).
-        quota: Numero massimo di snippet da raccogliere.
+        token: GitHub personal access token (optional but recommended).
+        quota: Maximum number of snippets to collect.
     """
 
     def __init__(self, token: str | None = None, quota: int = 200) -> None:
@@ -727,32 +727,32 @@ class GitHubCollector:
         _token = token or os.environ.get("GITHUB_TOKEN")
         if _token:
             self.gh = Github(auth=Auth.Token(_token))
-            log.info("[GH] Autenticato con token (5000 richieste/ora)")
+            log.info("[GH] Authenticated with token (5000 requests/hour)")
         else:
             self.gh = Github()
-            log.warning("[GH] Nessun token: accesso anonimo, 60 richieste/ora.")
+            log.warning("[GH] No token: anonymous access, 60 requests/hour.")
         self.quota = quota
 
     def _iter_py_files(self, repo) -> Iterator[tuple[str, str]]:
-        """Itera i file .py di un repo restituendo (path, contenuto).
+        """Iterates .py files in a repo, yielding (path, content).
 
-        Salta file di test, migration, __pycache__, file > 100KB.
-        Rispetta MAX_ITEMS_PER_REPO e MAX_SECONDS_PER_REPO.
+        Skips test files, migrations, __pycache__, files > 100KB.
+        Respects MAX_ITEMS_PER_REPO and MAX_SECONDS_PER_REPO.
 
         Args:
-            repo: Oggetto Repository di PyGitHub.
+            repo: PyGitHub Repository object.
 
         Yields:
-            Tuple (path, contenuto_decodificato) per ogni file .py valido.
+            Tuple (path, decoded_content) for each valid .py file.
         """
         repo_name = repo.full_name
         try:
             contents = _gh_call(self.gh, repo.get_contents, "")
         except GithubException as e:
-            log.warning(f"[GH] {repo_name}: root non leggibile ({e})")
+            log.warning(f"[GH] {repo_name}: root not readable ({e})")
             return
         except RateLimitExceededException:
-            log.error(f"[GH] {repo_name}: rate limit esaurito anche dopo i retry")
+            log.error(f"[GH] {repo_name}: rate limit exhausted even after retries")
             return
 
         stack = list(contents)
@@ -761,10 +761,10 @@ class GitHubCollector:
 
         while stack:
             if items_seen >= MAX_ITEMS_PER_REPO:
-                log.warning(f"[GH] {repo_name}: tetto di {MAX_ITEMS_PER_REPO} elementi raggiunto")
+                log.warning(f"[GH] {repo_name}: limit of {MAX_ITEMS_PER_REPO} items reached")
                 break
             if time.monotonic() - repo_start > MAX_SECONDS_PER_REPO:
-                log.warning(f"[GH] {repo_name}: timeout {MAX_SECONDS_PER_REPO}s raggiunto")
+                log.warning(f"[GH] {repo_name}: timeout {MAX_SECONDS_PER_REPO}s reached")
                 break
             item = stack.pop()
             items_seen += 1
@@ -781,20 +781,20 @@ class GitHubCollector:
                         yielded += 1
                         yield item.path, content
                     except Exception as e:
-                        log.debug(f"[GH] {repo_name}/{item.path}: errore decode ({e})")
+                        log.debug(f"[GH] {repo_name}/{item.path}: decode error ({e})")
             except RateLimitExceededException:
-                log.error(f"[GH] {repo_name}: rate limit esaurito durante scansione")
+                log.error(f"[GH] {repo_name}: rate limit exhausted during scan")
                 break
             except GithubException as e:
                 log.debug(f"[GH] {repo_name}/{getattr(item, 'path', '?')}: {e}")
 
-        log.info(f"[GH] {repo_name}: {scanned} file .py esaminati, {yielded} usati, {skipped} saltati")
+        log.info(f"[GH] {repo_name}: {scanned} .py files examined, {yielded} used, {skipped} skipped")
 
     def collect(self) -> list[Snippet]:
-        """Esegue la raccolta da tutti i repo in GITHUB_REPOS.
+        """Performs collection from all repos in GITHUB_REPOS.
 
         Returns:
-            Lista di snippet raccolti (deduplicati per hash).
+            List of collected snippets (deduplicated by hash).
         """
         snippets: list[Snippet] = []
         seen_hashes: set[str] = set()
@@ -805,14 +805,16 @@ class GitHubCollector:
 
             log.info(f"[GH] Repo: {repo_name} ({len(snippets)}/{self.quota})")
 
+
+
             try:
                 repo = _gh_call(self.gh, self.gh.get_repo, repo_name)
             except RateLimitExceededException:
-                log.error("[GH] Rate limit esaurito, interrompo")
+                log.error("[GH] Rate limit exhausted, stopping")
                 break
             except GithubException as e:
                 status = getattr(e, "status", "?")
-                log.warning(f"[GH] Repo {repo_name} non accessibile (HTTP {status}): {e}")
+                log.warning(f"[GH] Repo {repo_name} not accessible (HTTP {status}): {e}")
                 continue
 
             stars = getattr(repo, "stargazers_count", 0)
@@ -834,7 +836,7 @@ class GitHubCollector:
                         first_line = chunk.strip().splitlines()[0]
                         func_match = re.search(r'def (\w+)', first_line)
                         func_label = func_match.group(1) if func_match else "snippet"
-                        description = f"{func_label} da {repo_name}/{file_path}"
+                        description = f"{func_label} from {repo_name}/{file_path}"
 
                         snippets.append(Snippet(
                             id=_make_id("gh", chunk),
@@ -847,23 +849,23 @@ class GitHubCollector:
                             score=stars,
                         ))
             except RateLimitExceededException:
-                log.error("[GH] Rate limit esaurito durante la scansione, interrompo")
+                log.error("[GH] Rate limit exhausted during scan, stopping")
                 break
 
-        log.info(f"[GH] Raccolti {len(snippets)} snippet")
+        log.info(f"[GH] Collected {len(snippets)} snippets")
         return snippets
 
 
 class GitHubSearchCollector:
-    """Collettore di snippet tramite GitHub Code Search API.
+    """Collector for snippets via GitHub Code Search API.
 
-    Cerca pattern bpy su TUTTO GitHub (non solo repo curati) usando
-    la Code Search API, che richiede un token (non funziona in anonimo)
-    e ha rate limit di 10 richieste/minuto.
+    Searches bpy patterns across ALL of GitHub (not just curated repos) using
+    the Code Search API, which requires a token (does not work anonymously)
+    and has a rate limit of 10 requests/minute.
 
     Args:
-        token: GitHub personal access token (obbligatorio).
-        quota: Numero massimo di snippet da raccogliere.
+        token: GitHub personal access token (required).
+        quota: Maximum number of snippets to collect.
     """
 
     DELAY = 7.0
@@ -877,10 +879,10 @@ class GitHubSearchCollector:
         self.quota = quota
 
     def collect(self) -> list[Snippet]:
-        """Esegue la raccolta usando tutte le query in GITHUB_SEARCH_QUERIES.
+        """Performs collection using all queries in GITHUB_SEARCH_QUERIES.
 
         Returns:
-            Lista di snippet raccolti (deduplicati per hash e file).
+            List of collected snippets (deduplicated by hash and file).
         """
         snippets: list[Snippet] = []
         seen_hashes: set[str] = set()
@@ -894,7 +896,7 @@ class GitHubSearchCollector:
             try:
                 results = _gh_call(self.gh, self.gh.search_code, query)
             except Exception as e:
-                log.warning(f"[GH-SEARCH] Ricerca '{query}' fallita: {e}")
+                log.warning(f"[GH-SEARCH] Search '{query}' failed: {e}")
                 continue
 
             try:
@@ -950,29 +952,29 @@ class GitHubSearchCollector:
 
                     time.sleep(self.DELAY)
             except RateLimitExceededException:
-                log.warning("[GH-SEARCH] Rate limit sulla search API, passo alla query successiva")
+                log.warning("[GH-SEARCH] Rate limit on search API, moving to next query")
                 continue
             except GithubException as e:
-                log.warning(f"[GH-SEARCH] Errore durante iterazione risultati: {e}")
+                log.warning(f"[GH-SEARCH] Error during result iteration: {e}")
                 continue
 
-        log.info(f"[GH-SEARCH] Raccolti {len(snippets)} snippet")
+        log.info(f"[GH-SEARCH] Collected {len(snippets)} snippets")
         return snippets
 
 
 class BlenderExamplesCollector:
-    """Collettore di script Python ufficiali dal repo blender/blender.
+    """Collector for official Python scripts from the blender/blender repo.
 
-    Estrae dalla cartella scripts/templates_py (~80 script ufficiali)
-    e da sotto-cartelle specifiche di blender-addons (io_mesh_stl,
-    object_print3d_toolbox, ecc.).
+    Extracts from the scripts/templates_py folder (~80 official scripts)
+    and from specific blender-addons subfolders (io_mesh_stl,
+    object_print3d_toolbox, etc.).
 
-    A differenza di GitHubCollector, qui si accede direttamente alle
-    cartelle target senza scansione ricorsiva completa.
+    Unlike GitHubCollector, this accesses target directories directly
+    without full recursive scanning.
 
     Args:
-        token: GitHub token opzionale.
-        quota: Numero massimo di snippet da raccogliere.
+        token: Optional GitHub token.
+        quota: Maximum number of snippets to collect.
     """
 
     def __init__(self, token: str | None = None, quota: int = 3000) -> None:
@@ -983,19 +985,19 @@ class BlenderExamplesCollector:
         self.quota = quota
 
     def _get_py_files_in_path(self, repo, path: str) -> list:
-        """Restituisce tutti i file .py in una cartella e 1 livello di sotto-cartelle.
+        """Returns all .py files in a folder and 1 level of subfolders.
 
         Args:
-            repo: Oggetto Repository PyGitHub.
-            path: Path nella repository.
+            repo: PyGitHub Repository object.
+            path: Path in the repository.
 
         Returns:
-            Lista di oggetti ContentFile PyGitHub (.py).
+            List of PyGitHub ContentFile objects (.py).
         """
         try:
             contents = _gh_call(self.gh, repo.get_contents, path)
         except Exception as e:
-            log.warning(f"[EXAMPLES] Impossibile accedere a {repo.full_name}/{path}: {e}")
+            log.warning(f"[EXAMPLES] Unable to access {repo.full_name}/{path}: {e}")
             return []
         files = []
         dirs = []
@@ -1019,10 +1021,10 @@ class BlenderExamplesCollector:
         return files
 
     def collect(self) -> list[Snippet]:
-        """Esegue la raccolta da tutti i repo/path in GITHUB_EXAMPLE_REPOS.
+        """Performs collection from all repos/paths in GITHUB_EXAMPLE_REPOS.
 
         Returns:
-            Lista di snippet da template ufficiali Blender.
+            List of snippets from official Blender templates.
         """
         snippets: list[Snippet] = []
         seen_hashes: set[str] = set()
@@ -1034,7 +1036,7 @@ class BlenderExamplesCollector:
             try:
                 repo = _gh_call(self.gh, self.gh.get_repo, repo_name)
             except Exception as e:
-                log.warning(f"[EXAMPLES] Impossibile aprire repo {repo_name}: {e}")
+                log.warning(f"[EXAMPLES] Unable to open repo {repo_name}: {e}")
                 continue
 
             stars = repo.stargazers_count
@@ -1044,7 +1046,7 @@ class BlenderExamplesCollector:
                     break
                 log.info(f"[EXAMPLES]   Path: {path}")
                 py_files = self._get_py_files_in_path(repo, path)
-                log.info(f"[EXAMPLES]   Trovati {len(py_files)} file .py")
+                log.info(f"[EXAMPLES]   Found {len(py_files)} .py files")
 
                 for file_item in py_files:
                     if len(snippets) >= self.quota:
@@ -1077,7 +1079,7 @@ class BlenderExamplesCollector:
                             continue
                         seen_hashes.add(code_hash)
 
-                        description = f"Script ufficiale Blender: {repo_name}/{file_item.path}"
+                        description = f"Official Blender script: {repo_name}/{file_item.path}"
                         snippets.append(Snippet(
                             id=_make_id("examples", chunk),
                             collection=_infer_collection(description + " " + chunk),
@@ -1089,20 +1091,20 @@ class BlenderExamplesCollector:
                             score=stars + 200,
                         ))
 
-        log.info(f"[EXAMPLES] Raccolti {len(snippets)} snippet")
+        log.info(f"[EXAMPLES] Collected {len(snippets)} snippets")
         return snippets
 
 
 class BlenderArtistsCollector:
-    """Collettore di snippet dal forum Blender Artists (Discourse).
+    """Collector for snippets from the Blender Artists forum (Discourse).
 
-    Usa la API pubblica di Discourse per listare topic nelle categorie
-    Python scripting e scaricare i post con codice bpy.
+    Uses the public Discourse API to list topics in Python scripting
+    categories and download posts with bpy code.
 
-    Nessuna autenticazione richiesta per contenuti pubblici.
+    No authentication required for public content.
 
     Args:
-        quota: Numero massimo di snippet da raccogliere.
+        quota: Maximum number of snippets to collect.
     """
 
     BASE_URL = "https://blenderartists.org"
@@ -1123,13 +1125,13 @@ class BlenderArtistsCollector:
         })
 
     def _get_json(self, url: str) -> dict | None:
-        """Esegue una GET Discourse e restituisce JSON parsato.
+        """Executes a Discourse GET and returns parsed JSON.
 
         Args:
-            url: URL completo dell'endpoint Discourse.
+            url: Full URL of the Discourse endpoint.
 
         Returns:
-            Dict JSON o None se errore/404.
+            JSON dict or None if error/404.
         """
         time.sleep(self.DELAY)
         try:
@@ -1139,17 +1141,17 @@ class BlenderArtistsCollector:
             r.raise_for_status()
             return r.json()
         except Exception as e:
-            log.debug(f"[BA] Errore fetch {url}: {e}")
+            log.debug(f"[BA] Fetch error {url}: {e}")
             return None
 
     def _extract_code_from_post(self, cooked_html: str) -> list[str]:
-        """Estrae blocchi di codice bpy dall'HTML Discourse (campo 'cooked').
+        """Extracts bpy code blocks from Discourse HTML (field 'cooked').
 
         Args:
-            cooked_html: HTML del post Discourse.
+            cooked_html: HTML of the Discourse post.
 
         Returns:
-            Lista di blocchi di codice puliti.
+            List of cleaned code blocks.
         """
         soup = BeautifulSoup(cooked_html, "html.parser")
         blocks = []
@@ -1163,15 +1165,15 @@ class BlenderArtistsCollector:
 
     def _collect_from_topic(self, topic_id: int, topic_title: str,
                             seen_hashes: set[str]) -> list[Snippet]:
-        """Raccoglie snippet da un singolo thread Discourse.
+        """Collects snippets from a single Discourse thread.
 
         Args:
-            topic_id: ID numerico del topic.
-            topic_title: Titolo del topic.
-            seen_hashes: Set di hash per deduplicazione globale.
+            topic_id: Numeric topic ID.
+            topic_title: Topic title.
+            seen_hashes: Set of hashes for global deduplication.
 
         Returns:
-            Lista di snippet dal thread.
+            List of snippets from the thread.
         """
         data = self._get_json(f"{self.BASE_URL}/t/{topic_id}.json")
         if not data:
@@ -1199,6 +1201,8 @@ class BlenderArtistsCollector:
                     sub_chunks = [code]
                 for chunk in sub_chunks:
                     description = f"{topic_title} (Blender Artists)"
+
+
                     snippets.append(Snippet(
                         id=_make_id("ba", chunk),
                         collection=_infer_collection(description + " " + chunk),
@@ -1213,10 +1217,10 @@ class BlenderArtistsCollector:
         return snippets
 
     def collect(self) -> list[Snippet]:
-        """Esegue la raccolta da tutte le categorie Discourse configurate.
+        """Performs collection from all configured Discourse categories.
 
         Returns:
-            Lista di snippet dal forum Blender Artists.
+            List of snippets from the Blender Artists forum.
         """
         snippets: list[Snippet] = []
         seen_hashes: set[str] = set()
@@ -1225,7 +1229,7 @@ class BlenderArtistsCollector:
         for cat_slug, cat_id in self.CATEGORIES:
             if len(snippets) >= self.quota:
                 break
-            log.info(f"[BA] Categoria: {cat_slug} ({len(snippets)}/{self.quota})")
+            log.info(f"[BA] Category: {cat_slug} ({len(snippets)}/{self.quota})")
 
             page = 0
             consecutive_empty = 0
@@ -1261,7 +1265,7 @@ class BlenderArtistsCollector:
                     if new_snips:
                         snippets.extend(new_snips)
                         new_this_page += len(new_snips)
-                        log.info(f"[BA]   Topic '{title[:50]}': {len(new_snips)} snippet")
+                        log.info(f"[BA]   Topic '{title[:50]}': {len(new_snips)} snippets")
 
                 if new_this_page == 0:
                     consecutive_empty += 1
@@ -1272,23 +1276,23 @@ class BlenderArtistsCollector:
                 if page > 30:
                     break
 
-        log.info(f"[BA] Raccolti {len(snippets)} snippet")
+        log.info(f"[BA] Collected {len(snippets)} snippets")
         return snippets
 
 
 class BlenderDocsCollector:
-    """Collettore di snippet dalla documentazione ufficiale Blender API.
+    """Collector for snippets from the official Blender API documentation.
 
-    Scarica pagine HTML da docs.blender.org ed estrae esempi di codice
-    dai blocchi <div class="highlight">.
+    Downloads HTML pages from docs.blender.org and extracts code examples
+    from <div class="highlight"> blocks.
 
-    Oltre alla lista fissa BLENDER_DOCS_URLS, scopre automaticamente
-    sotto-pagine bpy.types.* / bpy.ops.* partendo dagli indici.
+    In addition to the fixed BLENDER_DOCS_URLS list, automatically discovers
+    bpy.types.* / bpy.ops.* sub-pages starting from the index pages.
 
     Args:
-        quota: Numero massimo di snippet da raccogliere.
-        discover: Se True, scopre automaticamente le pagine dagli hub.
-        max_pages: Tetto al numero di pagine docs da esaminare.
+        quota: Maximum number of snippets to collect.
+        discover: If True, automatically discovers pages from hubs.
+        max_pages: Maximum number of docs pages to examine.
     """
 
     DELAY = 1.0
@@ -1301,13 +1305,13 @@ class BlenderDocsCollector:
         self.session.headers["User-Agent"] = "BlenderCorpusBuilder/2.0"
 
     def _fetch_page(self, url: str) -> BeautifulSoup | None:
-        """Scarica una pagina HTML della documentazione.
+        """Downloads an HTML page from the documentation.
 
         Args:
-            url: URL completo della pagina docs.blender.org.
+            url: Full URL of the docs.blender.org page.
 
         Returns:
-            BeautifulSoup parsato, o None se errore.
+            Parsed BeautifulSoup, or None on error.
         """
         time.sleep(self.DELAY)
         try:
@@ -1315,14 +1319,14 @@ class BlenderDocsCollector:
             r.raise_for_status()
             return BeautifulSoup(r.text, "html.parser")
         except Exception as e:
-            log.warning(f"[DOCS] Errore fetch {url}: {e}")
+            log.warning(f"[DOCS] Fetch error {url}: {e}")
             return None
 
     def _discover_urls(self) -> list[str]:
-        """Esplora le pagine indice e raccoglie link a sotto-pagine di reference.
+        """Explores index pages and collects links to reference sub-pages.
 
         Returns:
-            Lista di URL di pagine docs da esaminare.
+            List of docs page URLs to examine.
         """
         discovered: set[str] = set(BLENDER_DOCS_URLS)
         base = "https://docs.blender.org/api/current/"
@@ -1349,21 +1353,21 @@ class BlenderDocsCollector:
                 if len(discovered) >= self.max_pages:
                     break
 
-        log.info(f"[DOCS] {len(discovered)} pagine da esaminare")
+        log.info(f"[DOCS] {len(discovered)} pages to examine")
         return list(discovered)
 
     def _extract_examples(self, soup: BeautifulSoup, page_url: str) -> list[tuple[str, str]]:
-        """Estrae coppie (description, code) dalla pagina HTML parsata.
+        """Extracts (description, code) pairs from the parsed HTML page.
 
-        Cerca blocchi <pre> dentro <div class="highlight"> o con
-        class="literal-block", caratteristici della documentazione Sphinx.
+        Looks for <pre> blocks inside <div class="highlight"> or with
+        class="literal-block", characteristic of Sphinx documentation.
 
         Args:
-            soup: BeautifulSoup della pagina.
-            page_url: URL della pagina (per fallback descrizione).
+            soup: BeautifulSoup of the page.
+            page_url: Page URL (for fallback description).
 
         Returns:
-            Lista di tuple (descrizione, codice).
+            List of (description, code) tuples.
         """
         results = []
         seen_in_page: set[str] = set()
@@ -1398,16 +1402,16 @@ class BlenderDocsCollector:
                     description = text[:200]
                     break
             if not description:
-                description = f"Esempio dalla documentazione Blender API: {page_url}"
+                description = f"Example from Blender API documentation: {page_url}"
 
             results.append((description, code))
         return results
 
     def collect(self) -> list[Snippet]:
-        """Esegue la raccolta da tutte le pagine docs scoperte o fisse.
+        """Performs collection from all discovered or fixed docs pages.
 
         Returns:
-            Lista di snippet dalla documentazione ufficiale.
+            List of snippets from the official documentation.
         """
         snippets: list[Snippet] = []
         seen_hashes: set[str] = set()
@@ -1419,6 +1423,8 @@ class BlenderDocsCollector:
                 break
 
             log.info(f"[DOCS] {url} ({len(snippets)}/{self.quota})")
+
+
             soup = self._fetch_page(url)
             if not soup:
                 continue
@@ -1443,25 +1449,25 @@ class BlenderDocsCollector:
                     score=100,
                 ))
 
-        log.info(f"[DOCS] Raccolti {len(snippets)} snippet")
+        log.info(f"[DOCS] Collected {len(snippets)} snippets")
         return snippets
 
 
 def quality_filter(snippets: list[Snippet]) -> list[Snippet]:
-    """Filtra e deduplica il corpus finale per qualita'.
+    """Filters and deduplicates the final corpus for quality.
 
-    Criteri di scarto:
-      - Codice con SyntaxError Python
-      - Meno di MIN_BPY_CALLS chiamate bpy.*
-      - Duplicati (hash normalizzato)
-      - Placeholder (TODO, FIXME, NotImplementedError, pass#)
-      - Troppo corti (meno di MIN_CODE_LINES)
+    Rejection criteria:
+      - Code with Python SyntaxError
+      - Fewer than MIN_BPY_CALLS bpy.* calls
+      - Duplicates (normalized hash)
+      - Placeholders (TODO, FIXME, NotImplementedError, pass#)
+      - Too short (fewer than MIN_CODE_LINES)
 
     Args:
-        snippets: Lista di snippet da filtrare.
+        snippets: List of snippets to filter.
 
     Returns:
-        Lista filtrata e deduplicata.
+        Filtered and deduplicated list.
     """
     seen: set[str] = set()
     accepted: list[Snippet] = []
@@ -1505,7 +1511,7 @@ def quality_filter(snippets: list[Snippet]) -> list[Snippet]:
 
         accepted.append(s)
 
-    log.info(f"[FILTER] Accettati: {len(accepted)} | Scartati per:")
+    log.info(f"[FILTER] Accepted: {len(accepted)} | Rejected due to:")
     for reason, count in sorted(rejected_reasons.items(), key=lambda x: -x[1]):
         log.info(f"  - {reason}: {count}")
 
@@ -1513,11 +1519,11 @@ def quality_filter(snippets: list[Snippet]) -> list[Snippet]:
 
 
 def save_corpus(snippets: list[Snippet], path: Path = CORPUS_PATH) -> None:
-    """Salva il corpus filtrato su disco in formato JSONL.
+    """Saves the filtered corpus to disk in JSONL format.
 
     Args:
-        snippets: Lista di snippet da salvare.
-        path: Path del file JSONL output.
+        snippets: List of snippets to save.
+        path: Path of the JSONL output file.
     """
     with open(path, "w", encoding="utf-8") as f:
         for s in snippets:
@@ -1526,13 +1532,13 @@ def save_corpus(snippets: list[Snippet], path: Path = CORPUS_PATH) -> None:
 
 
 def load_corpus(path: Path = CORPUS_PATH) -> list[Snippet]:
-    """Carica il corpus da file JSONL.
+    """Loads the corpus from a JSONL file.
 
     Args:
-        path: Path del file JSONL da leggere.
+        path: Path of the JSONL file to read.
 
     Returns:
-        Lista di Snippet deserializzati.
+        List of deserialized Snippets.
     """
     snippets = []
     with open(path, "r", encoding="utf-8") as f:
@@ -1545,14 +1551,14 @@ def load_corpus(path: Path = CORPUS_PATH) -> list[Snippet]:
 
 
 async def load_corpus_into_vectordb(db, path: Path = CORPUS_PATH) -> None:
-    """Carica corpus.jsonl nel VectorDB Chroma.
+    """Loads corpus.jsonl into the Chroma VectorDB.
 
-    Aggiunge gli snippet del corpus esterno (raccolto da corpus_builder)
-    al VectorDB esistente, affiancandoli al CORPUS interno di vectordb.py.
+    Adds external corpus snippets (collected by corpus_builder)
+    to the existing VectorDB, alongside the internal CORPUS in vectordb.py.
 
     Args:
-        db: Istanza di VectorDB.
-        path: Path al file corpus.jsonl.
+        db: VectorDB instance.
+        path: Path to the corpus.jsonl file.
     """
     snippets = load_corpus(path)
 
@@ -1586,44 +1592,44 @@ def build_corpus(
     discover_docs: bool = True,
     max_doc_pages: int = 400,
 ) -> list[Snippet]:
-    """Esegue tutti i collector e restituisce il corpus filtrato.
+    """Runs all collectors and returns the filtered corpus.
 
-    Coordina l'esecuzione di ogni collettore, applica il quality filter,
-    e produce la lista finale ordinata per score.
+    Coordinates the execution of each collector, applies the quality filter,
+    and produces the final list sorted by score.
 
     Args:
-        github_token: Token GitHub opzionale (senza: niente code search,
-            repo curati limitatissimi).
-        se_api_key: API key Stack Exchange opzionale.
-        skip_github: True per saltare GitHub (curati + search).
-        skip_github_search: True per saltare solo la code search.
-        skip_blender_artists: True per saltare il forum.
-        discover_docs: True per scoprire pagine docs automaticamente.
-        max_doc_pages: Tetto pagine docs da esaminare.
+        github_token: Optional GitHub token (without: no code search,
+            curated repos very limited).
+        se_api_key: Optional Stack Exchange API key.
+        skip_github: True to skip GitHub (curated + search).
+        skip_github_search: True to skip only code search.
+        skip_blender_artists: True to skip the forum.
+        discover_docs: True to auto-discover docs pages.
+        max_doc_pages: Maximum docs pages to examine.
 
     Returns:
-        Lista finale di snippet filtrati e ordinati per score.
+        Final list of filtered snippets sorted by score.
     """
     all_snippets: list[Snippet] = []
     token = github_token or os.environ.get("GITHUB_TOKEN")
     se_key = se_api_key or os.environ.get("STACKEXCHANGE_KEY")
     raw_by_source: Counter = Counter()
 
-    log.info("=== CREDENZIALI ===")
-    log.info(f"  GITHUB_TOKEN:       {'presente' if token else 'ASSENTE (60 req/h anonimo, niente code search)'}")
-    log.info(f"  STACKEXCHANGE_KEY:  {'presente' if se_key else 'ASSENTE (300 req/giorno per IP, condivise)'}")
+    log.info("=== CREDENTIALS ===")
+    log.info(f"  GITHUB_TOKEN:       {'present' if token else 'MISSING (60 req/h anonymous, no code search)'}")
+    log.info(f"  STACKEXCHANGE_KEY:  {'present' if se_key else 'MISSING (300 req/day per IP, shared)'}")
 
     def _collect_source(name: str, label: str, fn) -> None:
         try:
             result = fn()
         except ImportError as e:
-            log.error(f"[{label}] {e} -- salto")
+            log.error(f"[{label}] {e} -- skipping")
             return
         except Exception:
-            log.exception(f"[{label}] Collector fallito")
+            log.exception(f"[{label}] Collector failed")
             return
         raw_by_source[name] += len(result)
-        log.info(f"[{label}] Raccolti (raw): {len(result)}")
+        log.info(f"[{label}] Collected (raw): {len(result)}")
         all_snippets.extend(result)
 
     log.info("=== COLLECTOR: Blender API Docs ===")
@@ -1647,7 +1653,7 @@ def build_corpus(
             lambda: BlenderArtistsCollector(quota=QUOTA["blender_artists"]).collect(),
         )
     else:
-        log.info("=== COLLECTOR: Blender Artists (saltato) ===")
+        log.info("=== COLLECTOR: Blender Artists (skipped) ===")
 
     log.info("=== COLLECTOR: Stack Exchange ===")
     _collect_source(
@@ -1665,16 +1671,16 @@ def build_corpus(
         if not skip_github_search:
             log.info("=== COLLECTOR: GitHub Code Search ===")
             if not token:
-                log.warning("[GH-SEARCH] Nessun token disponibile: la code search richiede autenticazione, salto")
+                log.warning("[GH-SEARCH] No token available: code search requires authentication, skipping")
             else:
                 _collect_source(
                     "github_search", "GH-SEARCH",
                     lambda: GitHubSearchCollector(token=token, quota=QUOTA["github_search"]).collect(),
                 )
     else:
-        log.info("=== COLLECTOR: GitHub (saltato) ===")
+        log.info("=== COLLECTOR: GitHub (skipped) ===")
 
-    log.info(f"[RAW] Snippet totali raccolti: {len(all_snippets)}")
+    log.info(f"[RAW] Total snippets collected: {len(all_snippets)}")
 
     log.info("=== QUALITY FILTER ===")
     filtered = quality_filter(all_snippets)
@@ -1683,16 +1689,16 @@ def build_corpus(
     final = filtered[:TARGET_TOTAL]
 
     accepted_by_source = Counter(s.source for s in filtered)
-    log.info("=== RACCOLTI vs ACCETTATI PER FONTE (diagnostica) ===")
+    log.info("=== COLLECTED vs ACCEPTED BY SOURCE (diagnostics) ===")
     for name in raw_by_source:
         raw_n = raw_by_source[name]
         kept_n = accepted_by_source.get(name, 0)
         pct = (kept_n / raw_n * 100) if raw_n else 0.0
-        log.info(f"  {name}: {raw_n} raccolti -> {kept_n} accettati ({pct:.0f}%)")
+        log.info(f"  {name}: {raw_n} collected -> {kept_n} accepted ({pct:.0f}%)")
 
     dist = Counter(s.collection for s in final)
     src_dist = Counter(s.source for s in final)
-    log.info(f"[CORPUS FINALE] {len(final)} snippet")
+    log.info(f"[FINAL CORPUS] {len(final)} snippets")
     for coll, count in dist.most_common():
         log.info(f"  collection={coll}: {count}")
     for src, count in src_dist.most_common():
@@ -1702,10 +1708,10 @@ def build_corpus(
 
 
 async def _main_async(args: argparse.Namespace) -> None:
-    """Esegue la pipeline completa in base ai flag CLI.
+    """Runs the complete pipeline based on CLI flags.
 
     Args:
-        args: Namespace argparse con flag di configurazione.
+        args: Argparse namespace with configuration flags.
     """
     if args.index_only:
         from vectordb import VectorDB
@@ -1736,26 +1742,26 @@ async def _main_async(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    """Entry point CLI per corpus_builder.
+    """CLI entry point for corpus_builder.
 
     Usage:
-        python corpus_builder.py                          # raccolta completa
-        python corpus_builder.py --load-only               # riusa corpus.jsonl
-        python corpus_builder.py --index-only              # solo indicizzazione
-        python corpus_builder.py -v                        # log dettagliato
+        python corpus_builder.py                          # full collection
+        python corpus_builder.py --load-only               # reuse corpus.jsonl
+        python corpus_builder.py --index-only              # indexing only
+        python corpus_builder.py -v                        # verbose logging
     """
-    parser = argparse.ArgumentParser(description="Corpus builder per snippet bpy")
-    parser.add_argument("--load-only", action="store_true", help="Riusa corpus.jsonl esistente")
-    parser.add_argument("--index-only", action="store_true", help="Solo indicizzazione (corpus.jsonl gia' presente)")
-    parser.add_argument("--index", action="store_true", help="Indicizza dopo la raccolta")
-    parser.add_argument("--no-blender-artists", action="store_true", help="Salta il forum Blender Artists")
-    parser.add_argument("--no-github", action="store_true", help="Salta GitHub (repo curati + code search)")
-    parser.add_argument("--no-github-search", action="store_true", help="Salta solo la code search dinamica")
-    parser.add_argument("--no-docs-discover", action="store_true", help="Non scoprire pagine docs automaticamente")
-    parser.add_argument("--max-doc-pages", type=int, default=400, help="Tetto pagine docs")
-    parser.add_argument("--github-token", type=str, default=None, help="GitHub token (o env GITHUB_TOKEN)")
-    parser.add_argument("--se-key", type=str, default=None, help="Stack Exchange key (o env STACKEXCHANGE_KEY)")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Log dettagliato")
+    parser = argparse.ArgumentParser(description="Corpus builder for bpy snippets")
+    parser.add_argument("--load-only", action="store_true", help="Reuse existing corpus.jsonl")
+    parser.add_argument("--index-only", action="store_true", help="Indexing only (corpus.jsonl already present)")
+    parser.add_argument("--index", action="store_true", help="Index after collection")
+    parser.add_argument("--no-blender-artists", action="store_true", help="Skip Blender Artists forum")
+    parser.add_argument("--no-github", action="store_true", help="Skip GitHub (curated repos + code search)")
+    parser.add_argument("--no-github-search", action="store_true", help="Skip only dynamic code search")
+    parser.add_argument("--no-docs-discover", action="store_true", help="Don't auto-discover docs pages")
+    parser.add_argument("--max-doc-pages", type=int, default=400, help="Max docs pages")
+    parser.add_argument("--github-token", type=str, default=None, help="GitHub token (or env GITHUB_TOKEN)")
+    parser.add_argument("--se-key", type=str, default=None, help="Stack Exchange key (or env STACKEXCHANGE_KEY)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
     args = parser.parse_args()
 
     _setup_logging(args.verbose)

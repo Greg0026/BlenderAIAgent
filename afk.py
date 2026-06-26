@@ -25,49 +25,49 @@ BATCH_CFG = {
     "max_jobs":           CFG.get("batch_max_jobs"),
         "llm_model":          CFG.get("batch_llm_model", "openai/gpt-oss-120b:free"),
         "prompt_categories": [
-        "arredamento low poly",
-        "accessori per smartphone e tablet",
-        "case protettive per schede elettroniche (Raspberry/Arduino)",
-        "organizer da scrivania modulari",
-        "porta-schede SD e pendrive da tavolo",
-        "supporti per cuffie o controller",
-        "stand ergonomici per laptop",
-        "vasi per piante con design voronoi o frattale",
-        "paralumi dal design parametrico e traforato",
-        "sculture astratte basate su funzioni trigonometriche",
-        "solidi platonici e geometrie complesse",
-        "accessori ganci e grip per attrezzatura da palestra",
-        "contenitori cilindrici sportivi con tappo a vite",
-        "supporti per action cam",
-        "puzzle 3D ad incastro geometrico",
-        "dadi da gioco poliedrici",
-        "elementi di scenografia sci-fi e cyberpunk",
-        "repliche di artefatti e props meccanici",
-        "portalampade e basi per lampade da tavolo",
-        "supporti per spazzolini elettrici da bagno",
-        "portacoltelli magnetici da cucina",
-        "scatole portaoggetti modulari impilabili",
-        "cornici per foto con design geometrico",
-        "posacenere da scrivania con incisioni",
-        "portacavi e fermacavi da tavolo",
-        "reggilibri con forme astratte o animali",
-        "portamatite rotanti da scrivania",
-        "reggette per organizzazione cavi elettrici",
-        "supporti per tablet da parete",
-        "portachiavi da muro personalizzabili",
-        "distributori automatici per medicine",
-        "portaocchiali da comodino",
-        "scatole porta gioielli con scomparti",
-        "supporti per smartphone da auto con ventosa",
-        "portaorologio da comodino",
-        "mini-vasi per piante grasse con drenaggio",
-        "portapenne con base girevole",
-        "ganci per parete con doppio attacco",
-        "modelli architettonici in scala ridotta",
-        "acchiappasogni parametrici 3D",
-        "ingranaggi decorativi funzionanti",
-        "lampade da scrivania LED stampate in 3D",
-        "carte geografiche 3D con rilievo",
+        "low poly furniture",
+        "smartphone and tablet accessories",
+        "protective cases for electronic boards (Raspberry/Arduino)",
+        "modular desk organizers",
+        "desktop SD card and USB drive holders",
+        "headphone or controller stands",
+        "ergonomic laptop stands",
+        "plant pots with voronoi or fractal design",
+        "lampshades with parametric and perforated design",
+        "abstract sculptures based on trigonometric functions",
+        "platonic solids and complex geometries",
+        "hook and grip accessories for gym equipment",
+        "cylindrical sports containers with screw cap",
+        "action cam mounts",
+        "interlocking geometric 3D puzzles",
+        "polyhedral game dice",
+        "sci-fi and cyberpunk scenery elements",
+        "replicas of mechanical artifacts and props",
+        "lamp holders and bases for desk lamps",
+        "bathroom electric toothbrush holders",
+        "kitchen magnetic knife holders",
+        "modular stackable storage boxes",
+        "photo frames with geometric design",
+        "desk ashtrays with engravings",
+        "cable organizers and cable clips for desk",
+        "bookends with abstract or animal shapes",
+        "rotating desk pencil holders",
+        "straps for electrical cable organization",
+        "wall tablet mounts",
+        "customizable wall key holders",
+        "automatic medicine dispensers",
+        "bedside eyeglass holders",
+        "jewelry boxes with compartments",
+        "car smartphone mounts with suction cup",
+        "bedside watch holder",
+        "mini pots for succulents with drainage",
+        "pen holder with rotating base",
+        "wall hooks with dual attachment",
+        "small-scale architectural models",
+        "parametric 3D dreamcatchers",
+        "functional decorative gears",
+        "3D printed LED desk lamps",
+        "3D relief maps",
     ]
 }
 
@@ -90,14 +90,14 @@ async def generate_dynamic_prompt(api_key: str, category: str) -> str:
         "Content-Type": "application/json"
     }
     sys_prompt = (
-        "Sei un assistente tecnico esperto in modellazione 3D procedurale. "
-        "Genera descrizioni brevi e dirette per script Python Blender 3.0."
+        "You are a technical assistant expert in procedural 3D modeling. "
+        "Generate short and direct descriptions for Blender 3.0 Python scripts."
     )
     user_prompt = (
-        f"Genera una singola istruzione (massimo 2 frasi) per modellare un oggetto 3D della categoria '{category}'. "
-        "Includi dimensioni specifiche (es. cm o mm) e dettagli fisici (es. spessore, cavita, raggio). "
-        "Rispondi SOLO con l'istruzione, senza virgolette, senza convenevoli e senza codice. "
-        "Inizia sempre con 'Crea un...' o 'Genera un...' e termina la frase con 'Blender 3.0.'."
+        f"Generate a single instruction (maximum 2 sentences) to model a 3D object in the category '{category}'. "
+        "Include specific dimensions (e.g. cm or mm) and physical details (e.g. thickness, cavity, radius). "
+        "Respond ONLY with the instruction, without quotes, without pleasantries and without code. "
+        "Always start with 'Create a...' or 'Generate a...' and end the sentence with 'Blender 3.0.'."
     )
     data = {
         "model": BATCH_CFG["llm_model"],
@@ -115,16 +115,16 @@ async def generate_dynamic_prompt(api_key: str, category: str) -> str:
                 return result["choices"][0]["message"]["content"].strip()
             else:
                 text = await response.text()
-                logger.warning("Errore LLM (%s): %s", response.status, text)
+                logger.warning("LLM error (%s): %s", response.status, text)
     except Exception as e:
-        logger.warning("Eccezione chiamata LLM: %s", e)
-    return f"Crea un oggetto di tipo {category} con dimensioni standard, pareti 2mm. Blender 3.0."
+        logger.warning("LLM call exception: %s", e)
+    return f"Create an object of type {category} with standard dimensions, 2mm walls. Blender 3.0."
 
 
 def _slug(text: str) -> str:
     words = re.sub(r"[^\w\s]", "", text.lower()).split()
-    stop = {"crea", "un", "una", "con", "da", "per", "di", "in", "a", "blender", "30",
-            "stampabile", "3d", "pareti", "altezza", "circa", "mm", "cm", "genera", "il", "la"}
+    stop = {"create", "a", "with", "from", "for", "of", "in", "blender", "30",
+            "printable", "3d", "walls", "height", "about", "mm", "cm", "generate", "the"}
     meaningful = [w for w in words if w not in stop and not w.isdigit()][:6]
     return "_".join(meaningful) if meaningful else "oggetto_generico"
 
@@ -167,15 +167,15 @@ def write_session_report(session_dir: Path, results: list, total_elapsed: float)
     lines = [
         "BlenderAIAgent -- Batch Session Report",
         "=" * 60,
-        f"Data/Ora:        {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"Cartella:        {session_dir}",
-        f"Job eseguiti:    {n_total}",
-        f"Riusciti:        {n_ok}",
-        f"Falliti:         {n_fail}",
-        f"Tasso successo:  {rate}",
-        f"Tempo totale:    {_elapsed(total_elapsed)}",
-        f"Media per job:   {_elapsed(total_elapsed / n_total) if n_total else 'N/A'}",
-        "", "DETTAGLIO JOB", "-" * 60,
+        f"Date/Time:        {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Folder:        {session_dir}",
+        f"Jobs run:    {n_total}",
+        f"Succeeded:        {n_ok}",
+        f"Failed:         {n_fail}",
+        f"Success rate:  {rate}",
+        f"Total time:    {_elapsed(total_elapsed)}",
+        f"Average per job:   {_elapsed(total_elapsed / n_total) if n_total else 'N/A'}",
+        "", "JOB DETAILS", "-" * 60,
     ]
     for r in results:
         icon = "OK" if r["success"] else "FAIL"
@@ -200,7 +200,7 @@ async def run_single_job(orch: Orchestrator, prompt: str, job_idx: int) -> dict:
             success = True
             phase = "PIPELINE_OK"
         else:
-            error = "Script vuoto o non valido restituito dall'agente."
+            error = "Empty or invalid script returned by the agent."
     except Exception as e:
         error = str(e)
         traceback.print_exc()
@@ -216,15 +216,15 @@ async def main():
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
     if not api_key:
-        logger.critical("OPENROUTER_API_KEY non trovata (per generazione prompt batch).")
+        logger.critical("OPENROUTER_API_KEY not found (for batch prompt generation).")
         return
     if not nvidia_key:
-        logger.warning("NVIDIA_API_KEY non trovata. La pipeline userà solo OPENROUTER_API_KEY tramite LLM_BASE_URL.")
+        logger.warning("NVIDIA_API_KEY not found. The pipeline will use only OPENROUTER_API_KEY via LLM_BASE_URL.")
 
     session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_dir = Path(BATCH_CFG["output_dir"]) / f"session_{session_ts}"
     session_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("Cartella sessione: %s", session_dir.resolve())
+    logger.info("Session folder: %s", session_dir.resolve())
 
     blender_path = os.environ.get("BLENDER_PATH", "blender")
     runner = BlenderRunner(blender_executable=blender_path)
@@ -232,7 +232,7 @@ async def main():
     try:
         await db.build()
     except Exception as e:
-        logger.warning("VectorDB build fallito (%s). Continuo senza.", e)
+        logger.warning("VectorDB build failed (%s). Continuing without.", e)
 
     try:
         orch = Orchestrator(db, runner)
@@ -245,16 +245,16 @@ async def main():
     n_ok = 0
     idx = 1
     max_jobs = BATCH_CFG.get("max_jobs")
-    logger.info("Avvio ciclo. CTRL+C per interrompere.")
+    logger.info("Starting loop. Press CTRL+C to stop.")
 
     try:
         while True:
             if max_jobs and idx > max_jobs:
-                logger.info("Limite massimo job (%s) raggiunto.", max_jobs)
+                logger.info("Maximum job limit (%s) reached.", max_jobs)
                 break
 
             category = random.choice(BATCH_CFG["prompt_categories"])
-            logger.info("Generazione prompt (Categoria: %s)...", category)
+            logger.info("Generating prompt (Category: %s)...", category)
             prompt = await generate_dynamic_prompt(api_key, category)
 
             result = await run_single_job(orch, prompt, idx)
@@ -263,25 +263,25 @@ async def main():
             if result["success"] and result["script"]:
                 job_dir = save_result(session_dir, idx, prompt, result["script"], True, result["phase_reached"], result["elapsed_sec"])
                 n_ok += 1
-                logger.info("Script salvato in: %s", job_dir)
+                logger.info("Script saved in: %s", job_dir)
             else:
                 save_result(session_dir, idx, prompt, result["script"] or "# Nessuno script", False, result["phase_reached"], result["elapsed_sec"], result["error"])
-                logger.warning("Job %d fallito: %s", idx, result['error'][:80] if result['error'] else 'Errore sconosciuto')
+                logger.warning("Job %d failed: %s", idx, result['error'][:80] if result['error'] else 'Unknown error')
                 if not BATCH_CFG.get("skip_failed", True):
-                    logger.warning("skip_failed=False -- interruzione batch.")
+                    logger.warning("skip_failed=False -- aborting batch.")
                     break
 
             total_elapsed = time.time() - session_start
-            logger.info("Avanzamento: Job %d | OK %d | FAIL %d | Trascorso: %s", idx, n_ok, idx - n_ok, _elapsed(total_elapsed))
+            logger.info("Progress: Job %d | OK %d | FAIL %d | Elapsed: %s", idx, n_ok, idx - n_ok, _elapsed(total_elapsed))
             write_session_report(session_dir, results, total_elapsed)
 
             pause = BATCH_CFG.get("pause_between_jobs", 10)
-            logger.info("Pausa %ds...", pause)
+            logger.info("Pausing %ds...", pause)
             await asyncio.sleep(pause)
             idx += 1
 
     except KeyboardInterrupt:
-        logger.info("Interruzione utente. Salvataggio report...")
+        logger.info("User interruption. Saving report...")
 
     global _HTTP_SESSION
     if _HTTP_SESSION is not None:
@@ -293,9 +293,9 @@ async def main():
 
     n_total = len(results)
     logger.info("=" * 50)
-    logger.info("SESSIONE COMPLETATA")
+    logger.info("SESSION COMPLETED")
     logger.info("=" * 50)
-    logger.info("Job: %d | OK: %d | FAIL: %d | Rate: %s | Tempo: %s",
+    logger.info("Job: %d | OK: %d | FAIL: %d | Rate: %s | Time: %s",
                 n_total, n_ok, n_total - n_ok,
                 f"{n_ok/n_total*100:.1f}%" if n_total else "N/A",
                 _elapsed(total_elapsed))

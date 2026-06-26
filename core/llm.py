@@ -23,7 +23,7 @@ def get_prompt(name: str) -> str:
         if p.exists():
             _PROMPT_CACHE[name] = p.read_text(encoding="utf-8")
         else:
-            logger.warning("Prompt file non trovato: %s", p)
+            logger.warning("Prompt file not found: %s", p)
             _PROMPT_CACHE[name] = ""
     return _PROMPT_CACHE[name]
 
@@ -71,7 +71,7 @@ class LLMClient:
 
         if not self.api_key:
             raise EnvironmentError(
-                "Nessuna API key trovata. Imposta OPENCODE_ZEN_API_KEY, NVIDIA_API_KEY o OPENROUTER_API_KEY in .env"
+                "No API key found. Set OPENCODE_ZEN_API_KEY, NVIDIA_API_KEY or OPENROUTER_API_KEY in .env"
             )
 
         self.client = AsyncOpenAI(base_url=base_url, api_key=self.api_key, timeout=None)
@@ -79,7 +79,7 @@ class LLMClient:
         self.fallback_models = self._filter_weak_models(CFG.get("fallback_models", []))
         self.base_model = CFG.get("model_id", "")
         if not self.base_model:
-            raise EnvironmentError("CFG['model_id'] non configurato.")
+            raise EnvironmentError("CFG['model_id'] not configured.")
 
         self._overall_timeout = CFG.get("phase_timeout", 300)
 
@@ -90,7 +90,7 @@ class LLMClient:
         for m in models:
             name_lower = m.lower()
             if any(f in name_lower for f in fragments):
-                logger.debug("Rimosso modello debole: %s", m)
+                logger.debug("Removed weak model: %s", m)
                 continue
             filtered.append(m)
         return filtered
@@ -114,7 +114,7 @@ class LLMClient:
         label: str,
     ) -> Optional[str]:
         short = model.split("/")[-1]
-        logger.info("[%s] >> chiamata %s ...", label, short)
+        logger.info("[%s] >> calling %s ...", label, short)
         try:
             async def _stream_and_collect():
                 stream = await self.client.chat.completions.create(
@@ -133,11 +133,11 @@ class LLMClient:
                         stream.__anext__(), timeout=ft
                     )
                 except asyncio.TimeoutError:
-                    logger.warning("[%s] nessun primo token da %s in %ds.", label, short, ft)
+                    logger.warning("[%s] no first token from %s in %ds.", label, short, ft)
                     return None, None
 
                 actual = getattr(chunk, "model", None) or model
-                logger.info("[%s] << primo token (%s)", label, actual.split("/")[-1])
+                logger.info("[%s] << first token (%s)", label, actual.split("/")[-1])
 
                 content = chunk.choices[0].delta.content or ""
                 chunk_cnt = 1
@@ -157,17 +157,17 @@ class LLMClient:
                 return None
 
             if not raw.strip():
-                logger.warning("[%s] Risposta vuota da %s.", label, short)
+                logger.warning("[%s] Empty response from %s.", label, short)
                 return None
 
             result = extract_code(raw) if do_extract else raw
 
             if not result or not result.strip():
-                logger.warning("[%s] Estrazione contenuto fallita da %s.", label, short)
+                logger.warning("[%s] Content extraction failed from %s.", label, short)
                 return None
 
             if do_extract and len(result.strip()) < min_len:
-                logger.warning("[%s] Script troppo corto (%d char) da %s.", label, len(result.strip()), short)
+                logger.warning("[%s] Script too short (%d chars) from %s.", label, len(result.strip()), short)
                 return None
 
             if label:
@@ -175,13 +175,13 @@ class LLMClient:
             return result
 
         except asyncio.TimeoutError:
-            logger.warning("[%s] Timeout %ds su %s.", label, self._overall_timeout, short)
+            logger.warning("[%s] Timeout %ds on %s.", label, self._overall_timeout, short)
             return None
         except (openai.OpenAIError, APIError) as e:
-            logger.warning("[%s] Errore API con %s: %s", label, short, e)
+            logger.warning("[%s] API error with %s: %s", label, short, e)
             return None
         except Exception as e:
-            logger.warning("[%s] Errore generico con %s: %s", label, short, e)
+            logger.warning("[%s] Generic error with %s: %s", label, short, e)
             return None
 
     async def call(
@@ -210,7 +210,7 @@ class LLMClient:
 
         for idx, model in enumerate(models):
             if idx > 0:
-                logger.info("[%s] fallback a %s tra %ds ...", label, model.split("/")[-1], backoff_s)
+                logger.info("[%s] fallback to %s in %ds ...", label, model.split("/")[-1], backoff_s)
                 await asyncio.sleep(backoff_s)
             result = await self._try_model(
                 model, full, _temp, _tokens, top_p, do_extract, min_len, label
@@ -219,5 +219,5 @@ class LLMClient:
                 return result
 
         raise RuntimeError(
-            f"[{label}] COLLASSO: tutti i modelli della cascata hanno fallito."
+            f"[{label}] COLLAPSE: all cascade models failed."
         )

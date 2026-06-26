@@ -28,7 +28,7 @@ obj = bpy.data.objects["Cube"]
         assert "bpy.data.objects" in result
 
     def test_extract_inline_code(self):
-        text = 'Usa `import bpy; bpy.ops.mesh.primitive_cube_add(size=2)` per creare.'
+        text = 'Use `import bpy; bpy.ops.mesh.primitive_cube_add(size=2)` to create.'
         result = extract_code(text)
         assert result == "import bpy; bpy.ops.mesh.primitive_cube_add(size=2)"
 
@@ -42,13 +42,13 @@ bpy.ops.mesh.primitive_cube_add(size=2)"""
         assert "bpy.ops.mesh" in result
 
     def test_does_not_extract_from_comment(self):
-        text = """# questo serve per bpy.ops ma e' commento
+        text = """# this is for bpy.ops but it's a comment
 x = 1"""
         result = extract_code(text)
         assert result is None
 
     def test_returns_none_when_no_bpy_code(self):
-        text = "Ciao, questo non contiene codice Python per Blender."
+        text = "Hello, this does not contain Blender Python code."
         result = extract_code(text)
         assert result is None
 

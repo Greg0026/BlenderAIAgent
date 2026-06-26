@@ -52,7 +52,7 @@ class Orchestrator:
             from analyzers.static_analyzer import StaticAnalyzer
             self.static_analyzer = StaticAnalyzer()
         except ImportError:
-            logger.warning("StaticAnalyzer non disponibile, salto analisi statica.")
+            logger.warning("StaticAnalyzer not available, skipping static analysis.")
 
         self.mesh_validator = MeshValidator(self.runner) if self.runner else None
 
@@ -64,7 +64,7 @@ class Orchestrator:
                     vision_model=CFG.get("vision_model", "moonshotai/kimi-k2.6"),
                 )
             except ImportError:
-                logger.warning("VisionReviewer non disponibile, disabilito visione.")
+                logger.warning("VisionReviewer not available, disabling vision review.")
                 self.vision_enabled = False
 
     async def run(self, prompt: str, bver: str = "3.0") -> str:
@@ -73,7 +73,7 @@ class Orchestrator:
         _set_run_id(run_id)
         self.error_history.clear()
         logger.info("=" * 60)
-        logger.info("PIPELINE AVVIATA: %s", prompt[:80])
+        logger.info("PIPELINE STARTED: %s", prompt[:80])
         logger.info("=" * 60)
 
         ctx = PipelineContext(prompt=prompt)
@@ -99,10 +99,10 @@ class Orchestrator:
             )
             return result
         except asyncio.TimeoutError:
-            logger.warning("Fase %s timeout (%ds). Passo alla fase successiva.", phase.name, timeout)
+            logger.warning("Phase %s timeout (%ds). Moving to next phase.", phase.name, timeout)
             return self._fallback_transition(phase)
         except Exception as e:
-            logger.error("Fase %s fallita: %s", phase.name, e)
+            logger.error("Phase %s failed: %s", phase.name, e)
             return self._fallback_transition(phase)
 
     async def _dispatch_phase(self, phase: Phase, ctx: "PipelineContext") -> Phase:
@@ -128,7 +128,7 @@ class Orchestrator:
 
     async def _phase_f1(self, ctx: "PipelineContext") -> Phase:
         ctx.enhanced_prompt = await f1_enhance(self.llm, ctx.prompt)
-        logger.info("F1 completato (%d char)", len(ctx.enhanced_prompt))
+        logger.info("F1 completed (%d chars)", len(ctx.enhanced_prompt))
 
         archetype = self._extract_archetype(ctx.enhanced_prompt)
         if not archetype:
@@ -141,9 +141,9 @@ class Orchestrator:
     async def _phase_f1_plan(self, ctx: "PipelineContext") -> Phase:
         try:
             ctx.math_plan = await f15_math_planner(self.llm, ctx.enhanced_prompt, ctx.prompt)
-            logger.info("F1.5 completato (%d char)", len(ctx.math_plan))
+            logger.info("F1.5 completed (%d chars)", len(ctx.math_plan))
         except Exception as e:
-            logger.warning("F1.5 fallito: %s. Continuo senza piano matematico.", e)
+            logger.warning("F1.5 failed: %s. Continuing without math plan.", e)
             ctx.math_plan = ctx.enhanced_prompt
         return Phase.F2_GENERATE
 
@@ -152,13 +152,13 @@ class Orchestrator:
         try:
             doc_ctx = await self.db.search(ctx.enhanced_prompt, n_results=5)
         except Exception as e:
-            logger.warning("VectorDB search fallita: %s", e)
+            logger.warning("VectorDB search failed: %s", e)
 
         try:
             ctx.script = await f2_codegen(self.llm, ctx.enhanced_prompt, ctx.math_plan, doc_ctx)
-            logger.info("F2 completato (%d char)", len(ctx.script))
+            logger.info("F2 completed (%d chars)", len(ctx.script))
         except Exception as e:
-            logger.error("F2 fallito: %s", e)
+            logger.error("F2 failed: %s", e)
             ctx.script = self._generate_fallback_script(ctx.prompt)
             return Phase.DONE
 
@@ -173,16 +173,16 @@ class Orchestrator:
             if not isinstance(results[0], Exception):
                 f3a_result = results[0]
             else:
-                logger.warning("F3A fallito: %s. Continuo.", results[0])
+                logger.warning("F3A failed: %s. Continuing.", results[0])
             if not isinstance(results[1], Exception):
                 f3b_result = results[1]
             else:
-                logger.warning("F3B fallito: %s. Continuo.", results[1])
+                logger.warning("F3B failed: %s. Continuing.", results[1])
         except Exception as e:
-            logger.warning("F3A+F3B entrambi falliti: %s", e)
+            logger.warning("F3A+F3B both failed: %s", e)
 
         ctx.script = self._merge_f3_results(ctx.script, f3a_result, f3b_result)
-        logger.info("F3A+F3B completati (%d char)", len(ctx.script))
+        logger.info("F3A+F3B completed (%d chars)", len(ctx.script))
         return Phase.F3_STATIC
 
     def _parallel_f3(self, ctx: "PipelineContext") -> tuple:
@@ -214,7 +214,7 @@ class Orchestrator:
         try:
             static_ok, static_issues = self.static_analyzer.analyze(ctx.script)
         except Exception as e:
-            logger.warning("Analisi statica fallita: %s", e)
+            logger.warning("Static analysis failed: %s", e)
             return Phase.F4_EXECUTE
 
         if static_ok:
@@ -234,23 +234,23 @@ class Orchestrator:
 
         if exec_ok:
             if self._has_mesh_output(output):
-                logger.info("F4 OK — mesh rilevata")
+                logger.info("F4 OK — mesh detected")
 
                 if self.mesh_validator:
                     try:
                         valid, issues = await self.mesh_validator.validate(ctx.script)
                         if not valid:
                             issues_text = self.mesh_validator.format_issues_for_llm(issues)
-                            logger.warning("Validazione mesh fallita: %s", issues_text[:100])
+                            logger.warning("Mesh validation failed: %s", issues_text[:100])
                             ctx.error_text = issues_text
                             return await self._apply_f6_fix(ctx, issues_text, "mesh validation fix")
                     except Exception as e:
-                        logger.warning("Validazione mesh non riuscita: %s. Continuo.", e)
+                        logger.warning("Mesh validation failed: %s. Continuing.", e)
 
                 return Phase.F4_VISION
             else:
-                logger.warning("F4 OK ma nessuna mesh rilevata")
-                error_text = "Lo script non ha prodotto oggetti mesh nella scena. Aggiungi geometria."
+                logger.warning("F4 OK but no mesh detected")
+                error_text = "The script did not produce mesh objects in the scene. Add geometry."
                 ctx.error_text = error_text
                 return await self._apply_f6_fix(ctx, error_text, "no mesh fix")
         else:
@@ -260,7 +260,7 @@ class Orchestrator:
 
     async def _phase_f4_vision(self, ctx: "PipelineContext") -> Phase:
         if not self.vision_enabled:
-            logger.info("Vision review disabilitata. Pipeline OK.")
+            logger.info("Vision review disabled. Pipeline OK.")
             ctx.success = True
             return Phase.DONE
 
@@ -269,21 +269,21 @@ class Orchestrator:
                 self.runner, ctx.script, ctx.enhanced_prompt, ctx.math_plan
             )
         except Exception as e:
-            logger.warning("Vision review fallita: %s. Considero superata.", e)
+            logger.warning("Vision review failed: %s. Considering it passed.", e)
             ctx.success = True
             return Phase.DONE
 
         if vision_ok:
-            logger.info("F4.5: Vision review SUPERATA")
+            logger.info("F4.5: Vision review PASSED")
             ctx.success = True
             return Phase.DONE
 
-        logger.info("F4.5: Vision review FALLITA")
+        logger.info("F4.5: Vision review FAILED")
         ctx.last_vision_feedback = vision_feedback
         ctx.vision_attempt += 1
 
         if ctx.vision_attempt >= CFG.get("error_loops", 8):
-            logger.warning("Vision loop esaurito. Accetto ultimo script.")
+            logger.warning("Vision loop exhausted. Accepting last script.")
             ctx.success = True
             return Phase.DONE
 
@@ -305,12 +305,12 @@ class Orchestrator:
 
     async def _apply_f6_fix(self, ctx: "PipelineContext", error_text: str, fix_type: str) -> Phase:
         if self._is_stuck(ctx, error_text):
-            logger.warning("Nessun progresso dopo fix. Forzo uscita.")
+            logger.warning("No progress after fix. Forcing exit.")
             return Phase.F4_VISION
 
         ctx.fix_attempt += 1
         if ctx.fix_attempt > CFG.get("fix_loops", 6):
-            logger.warning("Fix loop esaurito (%d tentativi).", ctx.fix_attempt)
+            logger.warning("Fix loop exhausted (%d attempts).", ctx.fix_attempt)
             return Phase.F4_VISION
 
         doc_ctx = ""
@@ -325,15 +325,14 @@ class Orchestrator:
                 self.llm, ctx.script, error_text, doc_ctx, error_history
             )
         except Exception as e:
-            logger.warning("F6 fix fallito: %s", e)
+            logger.warning("F6 fix failed: %s", e)
             return Phase.F4_VISION
 
         if new_script == ctx.script:
-            logger.warning("F6 fix non ha modificato lo script. Nessun progresso.")
-            return Phase.F4_VISION
+            logger.warning("F6 fix did not modify the script. No progress.")
 
         if not new_script or len(new_script.strip()) < 50:
-            logger.warning("F6 fix ha prodotto script vuoto.")
+            logger.warning("F6 fix produced empty script.")
             return Phase.F4_VISION
 
         self.error_history.add(error_text, fix_type)
@@ -341,14 +340,14 @@ class Orchestrator:
         ctx.oscillation.add_snapshot(ctx.script)
 
         if ctx.oscillation.is_oscillating():
-            logger.warning("Oscillazione rilevata! Forzo uscita dal fix loop.")
+            logger.warning("Oscillation detected! Forcing exit from fix loop.")
             return Phase.F4_VISION
 
         return Phase.F3_STATIC
 
     async def _apply_vision_fix(self, ctx: "PipelineContext", feedback: str) -> Phase:
         if ctx.oscillation.is_oscillating():
-            logger.warning("Oscillazione nel vision loop. Accetto script corrente.")
+            logger.warning("Oscillation in vision loop. Accepting current script.")
             ctx.success = True
             return Phase.DONE
 
@@ -356,11 +355,11 @@ class Orchestrator:
         try:
             new_script = await f6_vision_fix(self.llm, ctx.script, feedback, error_history)
         except Exception as e:
-            logger.warning("F6-VIS fallito: %s. Continuo con script corrente.", e)
+            logger.warning("F6-VIS failed: %s. Continuing with current script.", e)
             return Phase.FAILED
 
         if new_script == ctx.script or len(new_script.strip()) < 50:
-            logger.warning("F6-VIS non ha prodotto modifiche. Accetto script corrente.")
+            logger.warning("F6-VIS produced no changes. Accepting current script.")
             ctx.success = True
             return Phase.DONE
 
@@ -401,11 +400,11 @@ print(f"STL_EXPORTED:{{stl_path}}")
         try:
             ok, out = await self.runner.execute(ctx.script + "\n" + export_snippet)
             if ok and "STL_EXPORTED" in out:
-                logger.info("STL esportato: %s", stl_path)
+                logger.info("STL exported: %s", stl_path)
             else:
-                logger.warning("Export STL fallito (la mesh potrebbe non essere valida).")
+                logger.warning("STL export failed (the mesh may not be valid).")
         except Exception as e:
-            logger.warning("Export STL non riuscito: %s", e)
+            logger.warning("STL export failed: %s", e)
 
     def _fallback_transition(self, phase: Phase) -> Phase:
         fallback_map = {
@@ -434,9 +433,9 @@ print(f"STL_EXPORTED:{{stl_path}}")
         try:
             result = await self.llm.call(
                 system=(
-                    "Classifica il seguente prompt di modellazione 3D in un archetipo: "
-                    "A=rivoluzione, B=estrusione/loft, C=boolean composite, D=voronoi/frattale, E=ibrido. "
-                    "Rispondi SOLO con una lettera (A/B/C/D/E)."
+                    "Classify the following 3D modeling prompt into an archetype: "
+                    "A=revolution, B=extrusion/loft, C=boolean composite, D=voronoi/fractal, E=hybrid. "
+                    "Reply ONLY with a letter (A/B/C/D/E)."
                 ),
                 messages=[{"role": "user", "content": prompt}],
                 label="ARCHETYPE_VALIDATION",
@@ -448,7 +447,7 @@ print(f"STL_EXPORTED:{{stl_path}}")
             if result in ("A", "B", "C", "D", "E"):
                 return result
         except Exception as e:
-            logger.warning("Validazione archetipo fallita: %s", e)
+            logger.warning("Archetype validation failed: %s", e)
         return "E"
 
     def _has_mesh_output(self, output: str) -> bool:
@@ -531,10 +530,10 @@ class PipelineContext:
         self.oscillation = OscillationDetector(max_history=6)
 
     def log_final(self):
-        status = "SUCCESSO" if self.success else "PARZIALE (best-effort)"
+        status = "SUCCESS" if self.success else "PARTIAL (best-effort)"
         logger.info("=" * 60)
-        logger.info("PIPELINE COMPLETATA — %s", status)
-        logger.info("Script: %d caratteri, Fix: %d, Vision: %d",
+        logger.info("PIPELINE COMPLETED — %s", status)
+        logger.info("Script: %d chars, Fix attempts: %d, Vision attempts: %d",
                      len(self.script) if self.script else 0,
                      self.fix_attempt, self.vision_attempt)
         logger.info("=" * 60)

@@ -24,7 +24,7 @@ output_scripts/
 corpus.jsonl
 *.stl
 
-# Vision renders (temporanei)
+# Vision renders (temporary)
 blender_vision_renders/
 
 # OS
@@ -38,7 +38,7 @@ desktop.ini
 *.swp
 *.swo
 
-# VectorDB persistence (ricostruibile con vectordb.build())
+# VectorDB persistence (rebuildable with vectordb.build())
 .bpy_vectordb/
 
 # Virtual environments

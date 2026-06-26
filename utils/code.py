@@ -1,13 +1,13 @@
-"""Utility per estrazione e manipolazione di codice Python da risposte LLM.
+"""Utilities for extracting and manipulating Python code from LLM responses.
 
-Fornisce funzioni per:
-  - Estrarre codice Python da risposte LLM (contenenti markdown, spiegazioni)
-  - Estrarre sezioni di traceback/errore dall'output di Blender
-  - Formattare errori per query semantiche al VectorDB
-  - Troncare errori lunghi a lunghezza gestibile per il contesto LLM
+Provides functions for:
+  - Extracting Python code from LLM responses (containing markdown, explanations)
+  - Extracting traceback/error sections from Blender output
+  - Formatting errors for semantic VectorDB queries
+  - Truncating long errors to a manageable length for LLM context
 
-Queste funzioni sono usate da core/llm.py, core/orchestrator.py e
-dalle fasi della pipeline per processare le risposte dei modelli.
+These functions are used by core/llm.py, core/orchestrator.py and
+pipeline phases to process model responses.
 """
 
 import re
@@ -15,20 +15,20 @@ from typing import Optional
 
 
 def extract_code(text: str) -> Optional[str]:
-    """Estrae codice Python da una risposta LLM che può contenere markdown.
+    """Extracts Python code from an LLM response that may contain markdown.
 
-    Strategia di estrazione (in ordine):
-    1. Cerca blocchi ```python ... ``` o ``` ... ``` (fence)
-    2. Cerca codice inline `...` con import bpy
-    3. Cerca righe che iniziano con import bpy/bmesh o contengono bpy.
-       ATTENZIONE: evita falsi positivi su commenti (# bpy...) grazie
-       al pattern regex \\bbpy\\. (word boundary).
+    Extraction strategy (in order):
+    1. Look for ```python ... ``` or ``` ... ``` blocks (fence)
+    2. Look for inline `...` code with import bpy
+    3. Look for lines starting with import bpy/bmesh or containing bpy.
+       WARNING: avoids false positives on comments (# bpy...) thanks
+       to the \\bbpy\\. regex pattern (word boundary).
 
     Args:
-        text: Risposta testuale del LLM (può contenere spiegazioni).
+        text: LLM text response (may contain explanations).
 
     Returns:
-        Codice Python estratto, o None se non rilevato codice valido.
+        Extracted Python code, or None if no valid code detected.
     """
     if not text or not text.strip():
         return None
@@ -80,18 +80,18 @@ def extract_code(text: str) -> Optional[str]:
 
 
 def extract_error_section(output: str, max_lines: int = 60) -> str:
-    """Estrae la sezione di traceback dall'output di Blender.
+    """Extracts the traceback section from Blender output.
 
-    Cerca il marker "Traceback (most recent call last):" e restituisce
-    le righe successive fino a max_lines. Se non trova traceback,
-    restituisce le ultime max_lines righe dell'output.
+    Searches for the "Traceback (most recent call last):" marker and returns
+    the following lines up to max_lines. If no traceback is found,
+    returns the last max_lines lines of the output.
 
     Args:
-        output: Output completo di Blender (stdout + stderr).
-        max_lines: Numero massimo di righe da includere.
+        output: Full Blender output (stdout + stderr).
+        max_lines: Maximum number of lines to include.
 
     Returns:
-        Sezione di traceback o ultime righe dell'output.
+        Traceback section or last lines of the output.
     """
     lines = output.splitlines()
     try:
@@ -106,18 +106,18 @@ def extract_error_section(output: str, max_lines: int = 60) -> str:
 
 
 def format_error_for_query(error_text: str) -> str:
-    """Formatta un errore per usarlo come query nel VectorDB.
+    """Formats an error for use as a VectorDB query.
 
-    Estrae le righe più significative dall'errore (Error, Warning, Exception)
-    per creare una query semantica compatta. Evita di usare l'intero stack
-    trace (decine di righe) come query, che produrrebbe risultati irrilevanti
-    dal database vettoriale.
+    Extracts the most significant lines from the error (Error, Warning, Exception)
+    to create a compact semantic query. Avoids using the entire stack
+    trace (dozens of lines) as a query, which would produce irrelevant results
+    from the vector database.
 
     Args:
-        error_text: Testo completo dell'errore (stack trace).
+        error_text: Full error text (stack trace).
 
     Returns:
-        Query compatta (max 5 righe chiave) per ricerca vettoriale.
+        Compact query (max 5 key lines) for vector search.
     """
     lines = error_text.splitlines()
     key_lines = [l for l in lines if "Error:" in l or "Warning:" in l or "Exception:" in l or l.strip().startswith("File")]
@@ -127,17 +127,17 @@ def format_error_for_query(error_text: str) -> str:
 
 
 def summarize_error(error_text: str, max_len: int = 300) -> str:
-    """Tronca un errore lungo a una lunghezza massima per il contesto LLM.
+    """Truncates a long error to a maximum length for LLM context.
 
-    Prende le ultime max_len caratteri (dove c'è la parte più utile
-    dello stack trace: il messaggio di errore e le ultime chiamate).
+    Takes the last max_len characters (where the most useful part
+    of the stack trace is: the error message and the last calls).
 
     Args:
-        error_text: Testo completo dell'errore.
-        max_len: Lunghezza massima in caratteri del risultato.
+        error_text: Full error text.
+        max_len: Maximum character length of the result.
 
     Returns:
-        Errore troncato (dalla fine).
+        Truncated error (from the end).
     """
     if len(error_text) <= max_len:
         return error_text

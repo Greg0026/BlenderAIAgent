@@ -41,18 +41,18 @@ class StaticAnalyzer:
 
         if len(code) > self.MAX_LEN:
             issues.append(
-                f"ERR_LEN: Codice troppo lungo ({len(code)} chars). "
-                "Possibile allucinazione LLM."
+                f"ERR_LEN: Code too long ({len(code)} chars). "
+                "Possible LLM hallucination."
             )
 
         code_lower = code.lower()
         if "import bpy" not in code_lower and "from bpy" not in code_lower:
-            issues.append("ERR_IMPORT: Modulo base 'import bpy' mancante.")
+            issues.append("ERR_IMPORT: Base module 'import bpy' missing.")
 
         try:
             tree = ast.parse(code)
         except SyntaxError as e:
-            issues.append(f"ERR_SYNTAX [riga {e.lineno}]: {e.msg}")
+            issues.append(f"ERR_SYNTAX [line {e.lineno}]: {e.msg}")
             return False, issues
 
         for node in ast.walk(tree):
@@ -61,7 +61,7 @@ class StaticAnalyzer:
                     mod = alias.name.split(".")[0]
                     if mod in self.DANGEROUS_MODULES:
                         issues.append(
-                            f"ERR_UNSAFE: Importazione vietata del modulo '{alias.name}'."
+                            f"ERR_UNSAFE: Forbidden import of module '{alias.name}'."
                         )
 
             elif isinstance(node, ast.ImportFrom):
@@ -69,14 +69,14 @@ class StaticAnalyzer:
                     mod = node.module.split(".")[0]
                     if mod in self.DANGEROUS_MODULES:
                         issues.append(
-                            f"ERR_UNSAFE: Import vietato da '{node.module}'."
+                            f"ERR_UNSAFE: Forbidden import from '{node.module}'."
                         )
 
             elif isinstance(node, ast.Call):
                 if isinstance(node.func, ast.Name):
                     if node.func.id in self.DANGEROUS_BUILTINS:
                         issues.append(
-                            f"ERR_UNSAFE: Funzione nativa bloccata '{node.func.id}'."
+                            f"ERR_UNSAFE: Blocked built-in function '{node.func.id}'."
                         )
 
                 if isinstance(node.func, ast.Attribute):
@@ -86,26 +86,26 @@ class StaticAnalyzer:
                         and node.func.attr in self.DANGEROUS_OS_CALLS
                     ):
                         issues.append(
-                            f"ERR_UNSAFE: Chiamata pericolosa 'os.{node.func.attr}' vietata."
+                            f"ERR_UNSAFE: Dangerous call 'os.{node.func.attr}' forbidden."
                         )
 
         if not self._has_scene_reset(tree):
             issues.append(
-                "WARN_SCENE: Nessun reset scena (select_all + delete). "
-                "Geometrie residue dalla scena di default causeranno problemi."
+                "WARN_SCENE: No scene reset (select_all + delete). "
+                "Residual geometry from the default scene will cause issues."
             )
 
         code_upper = code.upper()
         if "BOOLEAN" in code_upper:
             if "transform_apply" not in code_lower:
                 issues.append(
-                    "WARN_BOOL: Mancata 'transform_apply' prima di operazione Booleana. "
-                    "Causerà risultati errati."
+                    "WARN_BOOL: Missing 'transform_apply' before Boolean operation. "
+                    "Will cause incorrect results."
                 )
             if "solver" not in code_lower:
                 issues.append(
-                    "WARN_BOOL: Boolean senza solver='EXACT' esplicito. "
-                    "Usare solver FAST può generare mesh non-manifold."
+                    "WARN_BOOL: Boolean without explicit solver='EXACT'. "
+                    "Using FAST solver may generate non-manifold meshes."
                 )
 
         has_solidify = "SOLIDIFY" in code_upper
@@ -115,20 +115,20 @@ class StaticAnalyzer:
 
         if not has_weld:
             issues.append(
-                "WARN_3DP: Nessuna saldatura vertici (Weld/remove_doubles). "
-                "Vertici duplicati causano fallimento slicer."
+                "WARN_3DP: No vertex welding (Weld/remove_doubles). "
+                "Duplicate vertices cause slicer failure."
             )
 
         if not has_normals:
             issues.append(
-                "WARN_3DP: Nessun ricalcolo normali (normals_make_consistent). "
-                "Normali invertite causano inversione stampa."
+                "WARN_3DP: No normal recalculation (normals_make_consistent). "
+                "Inverted normals cause print inversion."
             )
 
         if not has_stl_export:
             issues.append(
-                "INFO_EXPORT: Nessun export STL nello script (atteso: "
-                "l'esportazione è gestita dal runner esterno)."
+                "INFO_EXPORT: No STL export in script (expected: "
+                "export is handled by the external runner)."
             )
 
         errors = [i for i in issues if i.startswith("ERR")]

@@ -1,4 +1,4 @@
-"""Test di velocita per le API LLM configurate in .env.
+"""Speed test for the LLM APIs configured in .env.
 
 Usage:
     python -m tests.speed_test
@@ -99,7 +99,7 @@ def _resolve_api_key(provider: str) -> str:
 
 
 def print_table(rows: list[dict]):
-    header = f"{'Modello':<40} {'Prompt':<12} {'TTFT(s)':<10} {'Totale(s)':<12} {'Chars':<8} {'Errore'}"
+    header = f"{'Model':<40} {'Prompt':<12} {'TTFT(s)':<10} {'Total(s)':<12} {'Chars':<8} {'Error'}"
     sep = "-" * len(header)
     print(f"\n{sep}")
     print(header)
@@ -125,17 +125,17 @@ async def main():
     provider = _detect_provider(base_url)
     api_key = _resolve_api_key(provider)
 
-    print(f"\nConfigurazione letta da .env:")
+    print(f"\nConfiguration read from .env:")
     print(f"  Base URL:  {base_url}")
     print(f"  Provider:  {provider}")
-    print(f"  API Key:   {api_key[:12]}...{api_key[-4:]}" if len(api_key) > 16 else "  API Key:   [non trovata]")
+    print(f"  API Key:   {api_key[:12]}...{api_key[-4:]}" if len(api_key) > 16 else "  API Key:   [not found]")
     print(f"  Modello principale: {CFG['model_id']}")
     print(f"  Fallback: {CFG['fallback_models']}")
     print(f"  First chunk timeout cfg: {CFG.get('first_chunk_timeout', 30)}s")
     print(f"  Phase timeout cfg: {CFG.get('phase_timeout', 300)}s")
 
     if not api_key:
-        print("\nERRORE: Nessuna API key configurata.")
+        print("\nERROR: No API key configured.")
         sys.exit(1)
 
     client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=None)
@@ -149,9 +149,9 @@ async def main():
             models_to_test.append(m)
 
     prompts = [
-        ("semplice", PROMPT_SIMPLE),
-        ("medio", PROMPT_MEDIUM),
-        ("pesante", PROMPT_HEAVY),
+        ("simple", PROMPT_SIMPLE),
+        ("medium", PROMPT_MEDIUM),
+        ("heavy", PROMPT_HEAVY),
     ]
 
     all_results = []
@@ -162,11 +162,11 @@ async def main():
             result = await test_model(client, model, p_text, p_name, args.timeout)
             all_results.append(result)
             if result["first_token_s"] is not None:
-                print(f"  Primo token: {result['first_token_s']}s")
-                print(f"  Totale:      {result['total_s']}s")
-                print(f"  Caratteri:   {result['chars']}")
+                print(f"  First token: {result['first_token_s']}s")
+                print(f"  Total:      {result['total_s']}s")
+                print(f"  Characters:   {result['chars']}")
             else:
-                print(f"  ERRORE: {result['error']}")
+                print(f"  ERROR: {result['error']}")
 
     print_table(all_results)
 
@@ -174,10 +174,10 @@ async def main():
     if totals:
         avg_ttft = sum(r["first_token_s"] for r in totals) / len(totals)
         avg_total = sum(r["total_s"] for r in totals) / len(totals)
-        print(f"\nMedie (richieste riuscite):")
-        print(f"  TTFT medio:  {avg_ttft:.2f}s")
-        print(f"  Totale medio: {avg_total:.2f}s")
-        print(f"  Riuscite: {len(totals)}/{len(all_results)}")
+        print(f"\nAverages (successful requests):")
+        print(f"  Average TTFT:  {avg_ttft:.2f}s")
+        print(f"  Average total: {avg_total:.2f}s")
+        print(f"  Succeeded: {len(totals)}/{len(all_results)}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,817 @@
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                       BlenderAIAgent — COMPLETE GUIDE                    ║
+║  Transform natural language descriptions into Blender 3D Python scripts  ║
+║  ready for 3D printing. Each script produces manifold STL geometry.      ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+
+TABLE OF CONTENTS
+═══════════════════════════════════════════════════════════════════════════
+
+  1.  Requirements
+  2.  Installation
+  3.  Configuration
+  4.  Basic Usage
+  5.  Pipeline Architecture
+  6.  Phase Reference
+  7.  Geometric Archetypes
+  8.  Batch Mode (AFK)
+  9.  VectorDB Corpus
+  10. Stability Mechanisms
+  11. Performance Tuning
+  12. Troubleshooting
+  13. Environment Variables Reference
+  14. Prompt Examples
+  15. Testing
+  16. Project Structure
+
+
+1. REQUIREMENTS
+═══════════════════════════════════════════════════════════════════════════
+
+  Hardware
+  ├── CPU: Any modern x86-64 processor
+  ├── RAM: 4 GB minimum (8 GB+ recommended)
+  ├── GPU: Recommended for Vision Review (any NVIDIA GPU with CUDA)
+  └── Storage: 500 MB for the project (VectorDB may grow with corpus)
+
+  Software
+  ├── OS: Windows 10+, Linux, or macOS
+  ├── Python 3.9+
+  ├── Blender 3.0+ (3.4+ recommended)
+  └── Internet connection (for LLM API calls)
+
+  API Providers (at least one)
+  ├── NVIDIA NIM (api.nvidia.com) — primary option
+  ├── OpenRouter (openrouter.ai) — fallback / batch
+  └── OpenCode Zen (opencode.ai) — alternative
+
+
+2. INSTALLATION
+═══════════════════════════════════════════════════════════════════════════
+
+  2.1 Clone or Download
+
+      git clone <repository-url>
+      cd 3dideaexp
+
+  2.2 Install Python Dependencies
+
+      pip install -r requirements.txt
+
+      This installs:
+      ├── openai           — LLM API client
+      ├── aiohttp          — Async HTTP for Blender runner
+      ├── python-dotenv    — .env file loading
+      ├── chromadb         — Vector database
+      └── sentence-transformers — Semantic embeddings
+
+      Optional — for corpus_builder.py:
+      pip install requests beautifulsoup4 PyGitHub
+
+  2.3 Verify Blender Installation
+
+      blender --version
+
+      If the command is not found:
+      - Windows: Add Blender to PATH, or set BLENDER_PATH in .env
+      - Linux/macOS: Install via package manager or set BLENDER_PATH
+
+  2.4 Create Configuration File
+
+      cp .env.example .env
+
+      Then edit .env with your API keys (see section 3).
+
+
+3. CONFIGURATION
+═══════════════════════════════════════════════════════════════════════════
+
+  3.1 API Keys (at least one required)
+
+      | Provider          | Variable               | How to Get                              |
+      |-------------------|------------------------|------------------------------------------|
+      | NVIDIA NIM        | NVIDIA_API_KEY         | https://build.nvidia.com                 |
+      | OpenRouter        | OPENROUTER_API_KEY     | https://openrouter.ai/keys               |
+      | OpenCode Zen      | OPENCODE_ZEN_API_KEY   | https://opencode.ai                      |
+
+  3.2 Blender Path
+
+      BLENDER_PATH=C:\Program Files\Blender Foundation\Blender 4.0\blender.exe
+
+      On Linux/macOS:
+      BLENDER_PATH=/usr/bin/blender
+
+  3.3 Model Selection
+
+      The pipeline uses a cascade of models. Configure the primary model:
+
+      LLM_MODEL_ID=deepseek-ai/deepseek-v4-pro
+
+      Recommended models:
+      ├── deepseek-ai/deepseek-v4-pro      — Highest quality (NVIDIA)
+      ├── z-ai/glm-5.1                      — Good balance (OpenRouter)
+      ├── deepseek-ai/deepseek-v4-flash     — Fast, lower cost
+      └── openai/gpt-oss-120b:free          — Free tier (OpenRouter)
+
+      Vision review model:
+      LLM_VISION_MODEL=kimi-k2.6
+
+      Fallback models (comma-separated):
+      LLM_FALLBACK_MODELS=deepseek-ai/deepseek-v4-flash,openai/gpt-4o-mini,...
+
+  3.4 Timeout Tuning
+
+      If your API provider is slow (common with free tiers):
+
+      FIRST_CHUNK_TIMEOUT=120    # Timeout for first token (default: 30)
+      PHASE_TIMEOUT=900          # Overall phase timeout (default: 300)
+
+      If Blender scripts are complex:
+      BLENDER_TIMEOUT=300        # Blender execution timeout (default: 120)
+
+
+4. BASIC USAGE
+═══════════════════════════════════════════════════════════════════════════
+
+  4.1 Generate Your First Model
+
+      python main.py
+
+      This uses the default prompt: "create a desk pen holder with 3
+      compartments, modern design. 3D print it."
+
+      Output: 3dtest.py — a Blender Python script.
+
+  4.2 Custom Prompts
+
+      Via command line:
+      python main.py -p "create a cylindrical vase, height 12cm, diameter 8cm"
+      python main.py --prompt "create a flower vase with hexagonal base" -o vase.py
+
+      Via environment variable:
+      PROMPT="create a modern lamp with voronoi pattern, height 25cm" python main.py
+
+  4.3 Run the Output Script
+
+      blender --background --python 3dtest.py
+
+      This executes the script in headless Blender. The STL file is saved
+      to ~/Desktop/blender_prints/ (configurable via STL_OUTPUT_DIR).
+
+  4.4 Tips for Good Prompts
+
+      DO:
+      ├── Specify dimensions: "height 15cm, diameter 8cm, walls 2mm"
+      ├── Describe the shape: "hexagonal base", "cylindrical", "tapered"
+      ├── Mention style: "modern", "minimalist", "ornate"
+      └── Include functional details: "3 compartments", "with lid"
+
+      AVOID:
+      ├── Vague descriptions: "make something nice"
+      ├── Overly complex: "a castle with 50 towers and a dragon"
+      ├── Impossible geometry: "a perfect sphere with sharp corners"
+      └── Non-physical: "a cup with 0mm wall thickness"
+
+
+5. PIPELINE ARCHITECTURE
+═══════════════════════════════════════════════════════════════════════════
+
+  The pipeline is a directed acyclic graph with 10 specialized phases
+  organized in two nested feedback loops:
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                                                                         │
+  │  Prompt → [F1] Enhancement → [F1.5] Math Planner → [F2] Code           │
+  │      ┌───────── VISION LOOP (up to ERROR_LOOPS=8) ──────────┐          │
+  │      │                                                       │          │
+  │      │  [F3A] Morph Review → [F3B] Printability Review       │          │
+  │      │      ┌────── FIX LOOP (up to FIX_LOOPS=6) ─────┐     │          │
+  │      │      │                                           │     │          │
+  │      │      │  [F3.5] Static Analysis → [F6] Fix        │     │          │
+  │      │      │  [F4]   Blender Execute  → [F6] Fix        │     │          │
+  │      │      │  [F4]   Mesh Validation → [F6] Fix         │     │          │
+  │      │      │                                           │     │          │
+  │      │      └───────────────────────────────────────────┘     │          │
+  │      │                                                       │          │
+  │      │  [F4.5] Vision Review → [F6-VIS] Visual Fix           │          │
+  │      │                                                       │          │
+  │      └───────────────────────────────────────────────────────┘          │
+  │                                                                         │
+  │  → Final Blender Python Script → [Optional] STL Export                 │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  Outer loop (Vision Loop): Run by the orchestrator to refine visual quality.
+  Each iteration runs F3A–F4.5–F6-VIS. Max ERROR_LOOPS iterations.
+
+  Inner loop (Fix Loop): Triggered by F3.5 or F4 failures. Each iteration
+  runs the failing phase + F6. Max FIX_LOOPS iterations.
+
+  Exit conditions (Definition of Done):
+  ├── D1: Code is syntactically valid (passes AST parse)
+  ├── D2: No dangerous modules (subprocess, os.system, etc.)
+  ├── D3: Code runs in headless Blender without errors
+  ├── D4: Mesh is manifold (watertight) with positive volume
+  ├── D5: Morphology matches the original prompt
+  └── D6: Visual quality passes LLM vision review
+
+
+6. PHASE REFERENCE
+═══════════════════════════════════════════════════════════════════════════
+
+  F1 — Prompt Enhancement
+  ───────────────────────────────────────────────────────────────────────
+  Input:  Raw user prompt (natural language)
+  Output: Structured technical specification
+  Model:  Primary LLM
+  Prompt: prompts/f1_enhance.txt
+  Details:
+    The prompt is analyzed and expanded into a formal specification
+    containing: archetype classification, numerical dimensions, material
+    constraints, printability requirements, and topological rules.
+
+  F1.5 — Mathematical Planner
+  ───────────────────────────────────────────────────────────────────────
+  Input:  Technical specification
+  Output: Mathematical plan with pseudocode
+  Model:  Primary LLM
+  Prompt: prompts/f15_math_planner.txt
+  Details:
+    For revolution archetypes: produces r(z) parametric formulas.
+    For extrusions: control points and sweep path.
+    For booleans: primitive parameters and operation sequence.
+    All with explicit numerical values derived from the spec.
+
+  F2 — Code Generation
+  ───────────────────────────────────────────────────────────────────────
+  Input:  Specification + Plan + VectorDB docs
+  Output: Initial Blender Python script
+  Model:  Primary LLM
+  Prompt: prompts/f2_codegen.txt
+  Details:
+    Full bpy script generation with RAG from VectorDB. Includes
+    imports, scene cleanup, geometry construction, modifiers,
+    booleans, and STL export preparation.
+
+  F3A — Morphological Review
+  ───────────────────────────────────────────────────────────────────────
+  Input:  Script + Technical specification
+  Output: Corrected script (or unchanged if OK)
+  Model:  Primary LLM
+  Prompt: prompts/f3a_morph.txt
+  Checks:
+    ├── Does the shape match the prompt?
+    ├── Are dimensions (height, width, radius) correct?
+    ├── Is the bottom closed (for containers)?
+    └── Are proportions faithful to the spec?
+
+  F3B — Printability Review
+  ───────────────────────────────────────────────────────────────────────
+  Input:  Script + Technical specification
+  Output: Corrected script (or unchanged if OK)
+  Model:  Primary LLM
+  Prompt: prompts/f3b_printability.txt
+  Checks:
+    ├── Is the mesh manifold (watertight)?
+    ├── Are wall thicknesses >= 1mm?
+    ├── Is modifier order correct (Solidify before Boolean)?
+    ├── Are normals facing outward?
+    └── Is the API safe (no context/poll violations)?
+
+  F3.5 — Static Analysis
+  ───────────────────────────────────────────────────────────────────────
+  Input:  Python script
+  Output: Error/warning list or pass
+  Model:  None (AST-based, no LLM)
+  Details:
+    Custom AST linter that checks:
+    ├── Python syntax validity
+    ├── Dangerous imports (subprocess, os.system, socket, etc.)
+    ├── Coding conventions (no bare excepts, no exec/eval)
+    ├── 3D printing heuristics (modifier order, weld presence)
+    └── Recursion limits and performance pitfalls
+
+  F4 — Blender Execution
+  ───────────────────────────────────────────────────────────────────────
+  Input:  Python script
+  Output: Blender stdout/stderr or mesh validation report
+  Process:
+    1. Write script to temporary file
+    2. Spawn headless Blender with asyncio subprocess
+    3. Wait with configurable timeout (BLENDER_TIMEOUT)
+    4. Capture stdout/stderr
+    5. If success: inject mesh validation snippet
+    6. Return validation results (non-manifold, zero area, etc.)
+
+  F4.5 — Vision Review
+  ───────────────────────────────────────────────────────────────────────
+  Input:  Script + Specification
+  Output: Visual quality report with scores
+  Model:  Vision-capable LLM (kimi-k2.6)
+  Prompt: prompts/f6_vis_fix.txt (for the fix phase)
+  Process:
+    1. Execute script in Blender (hidden window)
+    2. Render 4 orthographic views (front, side, top, perspective)
+    3. Save renders as PNG
+    4. Send images + prompt to vision LLM
+    5. Evaluate: Aesthetics (0-10), Fidelity (0-10), Geometry (0-10),
+       Printability (0-10)
+    6. If any score < 7/10: generate visual fix instructions
+
+  F6 — Targeted Fix
+  ───────────────────────────────────────────────────────────────────────
+  Input:  Script + Error message
+  Output: Corrected script
+  Model:  Primary LLM (or fallback)
+  Prompt: prompts/f6_fix.txt
+  Process:
+    1. Check ErrorHistory for known fixes
+    2. Query VectorDB for relevant code patterns
+    3. Send error + context + history to LLM
+    4. Validate corrected script syntax
+    5. Add to ErrorHistory for loop detection
+
+  F6-VIS — Visual Fix
+  ───────────────────────────────────────────────────────────────────────
+  Input:  Script + Vision review report
+  Output: Corrected script
+  Model:  Primary LLM
+  Prompt: prompts/f6_vis_fix.txt
+
+
+7. GEOMETRIC ARCHETYPES
+═══════════════════════════════════════════════════════════════════════════
+
+  The project classifies every 3D object into one of five geometric
+  archetypes. Each archetype has a dedicated generation strategy:
+
+  A — Revolution (axisymmetric)
+  ───────────────────────────────────────────────────────────────────────
+  Objects: Cups, vases, bowls, bottles, glasses, lampshades
+  Method:  Parametric r(z) profile, lathe/revolution via bmesh
+  Key parameters: N_SEGS >= 128, r(z) function, H (height)
+  Code:    bmesh vertices at (r(z)*cos(θ), r(z)*sin(θ), z)
+
+  B — Extrusion / Loft
+  ───────────────────────────────────────────────────────────────────────
+  Objects: Handles, profiles, rails, frames, curved panels
+  Method:  NURBS/Bezier curve + screw/sweep modifier
+  Key parameters: Control points, depth, resolution
+  Code:    bpy.data.curves.new(type='CURVE') + spline points
+
+  C — Boolean Composite
+  ───────────────────────────────────────────────────────────────────────
+  Objects: Boxes, housings, enclosures, containers with cutouts
+  Method:  CSG via Boolean modifiers (DIFFERENCE, UNION, INTERSECT)
+  Key parameters: Primitive dimensions, boolean operation sequence
+  Code:    bpy.ops.mesh.primitive_*_add() + Boolean modifiers
+  Rule:    Solidify BEFORE Boolean — always.
+
+  D — Voronoi / Fractal
+  ───────────────────────────────────────────────────────────────────────
+  Objects: Lampshades, sculptures, organic shapes, decorative objects
+  Method:  bmesh vertex manipulation + noise + subdivision
+  Key parameters: Noise scale, intensity, subdivision levels
+  Code:    bmesh + mathutils.noise + Subdivision Surface modifier
+
+  E — Hybrid
+  ───────────────────────────────────────────────────────────────────────
+  Objects: Complex objects combining multiple archetypes
+  Method:  Mix of the above approaches
+  Examples: A vase with boolean cutout patterns on a revolution body
+
+
+8. BATCH MODE (AFK)
+═══════════════════════════════════════════════════════════════════════════
+
+  The AFK (Away From Keyboard) mode continuously generates 3D models
+  across 40+ predefined categories without human intervention.
+
+  8.1 Start Batch Mode
+
+      python afk.py
+
+  8.2 Configuration
+
+      | Variable           | Default          | Description                     |
+      |--------------------|------------------|---------------------------------|
+      | BATCH_MAX_JOBS     | (unlimited)      | Stop after N successful jobs    |
+      | BATCH_PAUSE        | 10               | Seconds between jobs            |
+      | BATCH_OUTPUT_DIR   | output_scripts/  | Where scripts are saved         |
+      | BATCH_LLM_MODEL    | openai/gpt-oss-120b:free | Model for batch generation |
+
+  8.3 Categories
+
+      The batch runner selects randomly from categories including:
+      ├── Low-poly furniture
+      ├── Smartphone and tablet accessories
+      ├── Modular desk organizers
+      ├── Voronoi-design plant pots
+      ├── Jewelry and small decorative objects
+      ├── Kitchen tools and utensils
+      ├── Educational geometric models
+      ├── Replacement parts and brackets
+      └── 35+ more categories
+
+  8.4 Session Reports
+
+      After each job, a summary is printed:
+      ┌─────────────────────────────────────────────┐
+      │ SESSION COMPLETED                           │
+      │ Date:      2026-06-26 18:30:00              │
+      │ Folder:    session_20260626_183000/          │
+      │ Jobs run:  25                                │
+      │ Succeeded: 22 (88.0%)                        │
+      │ Failed:    3                                 │
+      │ Total time: 45m 12s                          │
+      │ Avg per job: 1m 48s                          │
+      └─────────────────────────────────────────────┘
+
+
+9. VECTORDB CORPUS
+═══════════════════════════════════════════════════════════════════════════
+
+  The VectorDB uses ChromaDB with sentence-transformers for semantic
+  retrieval of bpy documentation snippets. This enables RAG (Retrieval
+  Augmented Generation) for the code generation and fix phases.
+
+  9.1 Built-in Snippets
+
+      The project includes 27 built-in code snippets covering:
+      ├── Mesh creation (cylinder, cone, sphere, torus, cube)
+      ├── Booleans and modifiers
+      ├── Manifold repair (remove doubles, fill holes, weld)
+      ├── STL export with correct scale
+      ├── Text-to-mesh conversion
+      └── Geometry diagnostics
+
+  9.2 Build an Extended Corpus
+
+      python corpus_builder.py -v
+
+      This collects bpy snippets from 6 sources:
+      ├── Stack Exchange (blender.stackexchange.com)
+      ├── GitHub repositories (Blender add-ons, scripts)
+      ├── Official Blender API documentation
+      ├── Blender Artists forum
+      ├── Local .blend files
+      └── Additional curated sources
+
+  9.3 Index Only
+
+      python corpus_builder.py --index-only
+
+      Use this to re-index without re-collecting data. Useful after
+      editing the corpus.jsonl file manually.
+
+
+10. STABILITY MECHANISMS
+═══════════════════════════════════════════════════════════════════════════
+
+  10.1 OscillationDetector
+
+      Detects when the fix loop enters a cyclic pattern:
+        A → B → A → B → A → B
+      When detected, the pipeline forces exit and returns the best
+      script produced so far. Uses MD5 fingerprints of the generated
+      scripts to detect repeats.
+
+  10.2 ErrorHistory
+
+      Tracks the last 10 errors and their fixes. When F6 is called,
+      the history is passed as context to the LLM with the instruction
+      "VISUAL FIXES ALREADY APPLIED (DO NOT UNDO)." This prevents
+      the LLM from reverting previous successful fixes.
+
+  10.3 Fallback Script
+
+      If all pipeline phases fail and no valid script is produced,
+      the orchestrator falls back to a hardcoded script that generates
+      a base cube (2cm) with Solidify (2mm) and Subdivision Surface.
+      This ensures that the pipeline always produces something.
+
+  10.4 Model Cascade
+
+      If the primary model fails (timeout, API error, invalid output),
+      the pipeline tries fallback models in order:
+      1. Primary model (from LLM_MODEL_ID)
+      2. First fallback
+      3. Second fallback
+      ... up to 6 fallbacks
+
+      Weak models (<7B parameters) are automatically filtered out.
+
+  10.5 VectorDB RAG
+
+      When an error occurs, the pipeline queries the VectorDB for
+      semantically similar bpy code patterns. This provides context-
+      aware fix suggestions rather than generic corrections.
+
+
+11. PERFORMANCE TUNING
+═══════════════════════════════════════════════════════════════════════════
+
+  11.1 API Latency
+
+      Symptom: Long wait before first LLM response
+      Fix: Increase FIRST_CHUNK_TIMEOUT (default: 30, recommended: 120)
+      Fix: Use a faster provider (OpenRouter is often faster than NVIDIA)
+
+  11.2 Blender Execution Speed
+
+      Symptom: BLENDER_TIMEOUT errors on complex geometry
+      Fix: Increase BLENDER_TIMEOUT (default: 120, try: 300)
+      Fix: Reduce mesh complexity (fewer segments, lower subdivision)
+
+  11.3 Vision Review
+
+      Symptom: Vision review is slow or fails
+      Fix: Set VISION_REVIEW_ENABLED=false to skip vision
+      Fix: Use a faster vision model
+
+  11.4 Batch Mode Speed
+
+      Symptom: AFK mode generates slowly
+      Fix: Reduce BATCH_PAUSE (default: 10, try: 3)
+      Fix: Use a cheaper/faster model (e.g., deepseek-v4-flash)
+
+  11.5 Memory
+
+      Symptom: Out of memory errors
+      Fix: Reduce STATIC_MAX_LEN (default: 40000)
+      Fix: Reduce max_tokens in .env
+      Fix: Use a smaller model
+
+
+12. TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════════════
+
+  12.1 API Key Issues
+
+      EnvironmentError: No API key found
+      ─────────────────────────────────────────────────────────────────
+      Cause: .env is missing or has no valid API keys configured.
+      Fix:   cp .env.example .env
+              Then edit .env with at least one valid API key.
+
+      All models in the cascade failed
+      ─────────────────────────────────────────────────────────────────
+      Cause: API key is invalid, expired, or quota is exhausted.
+      Fix:   Verify the key at the provider dashboard.
+              Check API usage/quota limits.
+              Try switching providers (NVIDIA → OpenRouter).
+
+  12.2 Blender Issues
+
+      FileNotFoundError: blender not found
+      ─────────────────────────────────────────────────────────────────
+      Cause: BLENDER_PATH is incorrect or Blender is not installed.
+      Fix:   Set the absolute path in .env.
+              Windows example:
+                BLENDER_PATH=C:\Program Files\Blender Foundation\Blender 4.0\blender.exe
+
+      TIMEOUT: Blender did not finish within 120s
+      ─────────────────────────────────────────────────────────────────
+      Cause: Script is in an infinite loop or geometry is too complex.
+      Fix:   Increase BLENDER_TIMEOUT (try 300 or 600).
+              If the script has infinite loops, check F6 fix output.
+
+      Blender crashed (segfault, GPU error, or out of memory)
+      ─────────────────────────────────────────────────────────────────
+      Cause: GPU/driver issue, or the script uses too much memory.
+      Fix:   Update GPU drivers.
+              Reduce mesh complexity.
+              Run Blender with --debug-gpu for diagnostics.
+
+  12.3 Dependency Issues
+
+      ImportError: chromadb
+      ─────────────────────────────────────────────────────────────────
+      Cause: chromadb or sentence-transformers not installed.
+      Fix:   pip install chromadb sentence-transformers
+
+      ModuleNotFoundError: No module named 'openai'
+      ─────────────────────────────────────────────────────────────────
+      Cause: Missing core dependency.
+      Fix:   pip install -r requirements.txt
+
+  12.4 Pipeline Issues
+
+      Vision review failed
+      ─────────────────────────────────────────────────────────────────
+      Cause: GPU not available, render error, or API failure.
+      Fix:   Set VISION_REVIEW_ENABLED=false to skip vision.
+              Verify BLENDER_PATH includes a GPU-capable Blender.
+
+      F3.5 static analysis errors
+      ─────────────────────────────────────────────────────────────────
+      Cause: Generated code has syntax errors.
+      Fix:   Usually self-corrected by F6. If persistent, check the
+              system prompt in prompts/f2_codegen.txt.
+
+      Oscillation detected
+      ─────────────────────────────────────────────────────────────────
+      Cause: The fix loop generates the same script repeatedly.
+      Fix:   This is self-correcting — the pipeline exits gracefully
+              and returns the last script. Increase ERROR_LOOPS if
+              more iterations are needed.
+
+      batch_max_jobs not working
+      ─────────────────────────────────────────────────────────────────
+      Cause: Empty value means unlimited jobs.
+      Fix:   Set BATCH_MAX_JOBS=10 (or your desired number).
+
+  12.5 Quality Issues
+
+      Poor quality / wrong shape
+      ─────────────────────────────────────────────────────────────────
+      Cause: Weak model or insufficient VectorDB context.
+      Fix:   Use a stronger model (deepseek-v4-pro instead of flash).
+              Build a larger corpus with corpus_builder.py.
+              Be more specific in your prompt (include dimensions).
+
+      Script produces no mesh
+      ─────────────────────────────────────────────────────────────────
+      Cause: LLM generated code that doesn't create geometry.
+      Fix:   Verify prompt is specific enough.
+              Check the system prompt in prompts/f2_codegen.txt.
+              The pipeline will use the fallback cube script.
+
+
+13. ENVIRONMENT VARIABLES REFERENCE
+═══════════════════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ API KEYS                                                                │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ NVIDIA_API_KEY             NVIDIA NIM API key                           │
+  │ OPENROUTER_API_KEY         OpenRouter API key                           │
+  │ OPENCODE_ZEN_API_KEY       OpenCode Zen API key                         │
+  │ GITHUB_TOKEN               GitHub token (for corpus_builder.py)          │
+  │ STACKEXCHANGE_KEY          Stack Exchange API key (for corpus_builder)  │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ LLM CONFIGURATION                                                       │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ LLM_BASE_URL             API base URL                                   │
+  │ LLM_MODEL_ID             Primary model ID                               │
+  │ LLM_VISION_MODEL         Vision review model ID                         │
+  │ LLM_FALLBACK_MODELS      Comma-separated fallback model IDs             │
+  │ LLM_TEMPERATURE          Sampling temperature (default: 0.2)            │
+  │ LLM_TOP_P                Top-p sampling (default: 0.7)                  │
+  │ LLM_MAX_TOKENS           Max output tokens (default: 16384)             │
+  │ F2_MAX_TOKENS            Max tokens for F2 codegen (default: 40000)     │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ PIPELINE CONTROL                                                        │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ ERROR_LOOPS              Max vision loop iterations (default: 8)        │
+  │ FIX_LOOPS                Max fix loop iterations (default: 6)           │
+  │ PHASE_TIMEOUT            Overall phase timeout in s (default: 900)      │
+  │ FIRST_CHUNK_TIMEOUT      First token timeout in s (default: 120)        │
+  │ MIN_CODE_LENGTH          Minimum acceptable code length (default: 400)  │
+  │ STL_OUTPUT_DIR           STL file output directory                      │
+  │ VISION_REVIEW_ENABLED    Enable/disable vision review (true/false)      │
+  │ MAX_MESH_FIX_ATTEMPTS    Max mesh fix attempts (default: 3)             │
+  │ MAX_FIDELITY_REVIEW_PASSES Max fidelity review passes (default: 3)      │
+  │ STATIC_MAX_LEN           Max input size for static analyzer (default: 40000) │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ RETRY CONFIGURATION                                                     │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ API_BASE_DELAY           Base delay between retries in s (default: 3.0) │
+  │ API_MAX_RETRIES          Max retries per API call (default: 3)          │
+  │ API_INTER_PAUSE          Pause between API calls in s (default: 8.0)    │
+  │ RETRY_BACKOFF_S          Backoff increment per retry in s (default: 1.0)│
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ BLENDER                                                                 │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ BLENDER_PATH             Absolute path to Blender executable             │
+  │ BLENDER_TIMEOUT          Blender execution timeout in s (default: 120)  │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ BATCH MODE (afk.py)                                                     │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ BATCH_LLM_MODEL          Model for batch generation                     │
+  │ BATCH_MAX_JOBS           Max jobs (empty = unlimited)                   │
+  │ BATCH_PAUSE              Seconds between jobs (default: 10)             │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+
+14. PROMPT EXAMPLES
+═══════════════════════════════════════════════════════════════════════════
+
+  These prompts demonstrate good practices for getting high-quality results:
+
+  Simple cylindrical vase:
+  ───────────────────────────────────────────────────────────────────────
+  python main.py -p "create a cylindrical flower vase, height 12cm, \
+    diameter 8cm, wall thickness 2mm"
+
+  Desk pen holder:
+  ───────────────────────────────────────────────────────────────────────
+  python main.py -p "create a desk pen holder with 3 compartments, \
+    modern design, base 10x6cm, height 8cm, walls 3mm"
+
+  Box with hinged lid:
+  ───────────────────────────────────────────────────────────────────────
+  python main.py -p "create a rectangular storage box 15x10x6cm, \
+    with hinged lid, wall thickness 2mm, rounded corners r=5mm"
+
+  Voronoi lampshade:
+  ───────────────────────────────────────────────────────────────────────
+  python main.py -p "create a table lampshade with voronoi pattern, \
+    height 20cm, diameter 15cm, wall thickness 2mm, organic shape"
+
+  Flower pot with saucer:
+  ───────────────────────────────────────────────────────────────────────
+  python main.py -p "create a flower pot with saucer, top diameter 12cm, \
+    bottom diameter 8cm, height 10cm, walls 3mm, drainage hole in bottom"
+
+  Modular shelf bracket:
+  ───────────────────────────────────────────────────────────────────────
+  python main.py -p "create a shelf bracket L-shape, arms 15cm and 10cm, \
+    width 5cm, thickness 5mm, with 3 screw holes diameter 4mm"
+
+
+15. TESTING
+═══════════════════════════════════════════════════════════════════════════
+
+  Run the test suite:
+
+  # All tests
+  pytest tests/ -v
+
+  # Individual test files
+  pytest tests/test_cfg.py -v
+  pytest tests/test_code.py -v
+  pytest tests/test_errors.py -v
+  pytest tests/test_orchestrator.py -v
+
+  # API speed test
+  python -m tests.speed_test
+  python -m tests.speed_test --model deepseek-ai/deepseek-v4-flash
+
+
+16. PROJECT STRUCTURE
+═══════════════════════════════════════════════════════════════════════════
+
+  3dideaexp/
+  ├── main.py                  # Entry point: single prompt → STL
+  ├── afk.py                   # Autonomous batch runner (40+ categories)
+  ├── cfg.py                   # Centralized configuration (reads .env)
+  ├── log.py                   # Structured logger
+  ├── requirements.txt         # Python dependencies
+  ├── .env.example             # Configuration template
+  ├── .gitignore
+  ├── LICENSE
+  ├── README.md
+  ├── GUIDE.txt                # This file
+  │
+  ├── prompts/                 # LLM system prompts (plain text)
+  │   ├── f1_enhance.txt
+  │   ├── f15_math_planner.txt
+  │   ├── f2_codegen.txt
+  │   ├── f3a_morph.txt
+  │   ├── f3b_printability.txt
+  │   ├── f6_fix.txt
+  │   ├── f6_vis_fix.txt
+  │   ├── definition_of_done.txt
+  │   ├── shape_archetype_guide.txt
+  │   └── common_pitfalls.txt
+  │
+  ├── core/
+  │   ├── orchestrator.py      # Phase orchestrator with nested loops
+  │   ├── phases.py            # Phase implementations (F1–F6-VIS)
+  │   └── llm.py               # LLM wrapper with fallback cascade
+  │
+  ├── utils/
+  │   ├── runner.py            # Blender subprocess executor
+  │   ├── code.py              # Code extraction and error formatting
+  │   └── errors.py            # ErrorHistory + OscillationDetector
+  │
+  ├── analyzers/
+  │   ├── static_analyzer.py   # AST linter (safety, syntax, heuristics)
+  │   └── mesh_validator.py    # bmesh mesh validation
+  │
+  ├── review/
+  │   └── vision_reviewer.py   # Blender render + LLM vision review
+  │
+  ├── vectordb/
+  │   └── vectordb.py          # ChromaDB + sentence-transformers
+  │
+  ├── corpus/
+  │   └── corpus_builder.py    # Snippet collection from 6 sources
+  │
+  └── tests/
+      ├── test_cfg.py
+      ├── test_code.py
+      ├── test_errors.py
+      ├── test_orchestrator.py
+      └── speed_test.py        # API benchmark

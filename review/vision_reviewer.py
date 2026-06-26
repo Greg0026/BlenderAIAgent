@@ -40,7 +40,7 @@ def _vision_render() -> None:
                 _target = _o
                 break
     if _target is None:
-        print("RENDER_ERR:nessun oggetto MESH trovato")
+        print("RENDER_ERR:no MESH object found")
         return
 
     _bpy.context.view_layer.update()
@@ -129,49 +129,49 @@ _vision_render()
 
 
 _SP_VISION_REVIEW = """\
-Sei un Art Director e Quality Inspector 3D di alto livello, specializzato nella \
-valutazione estetica e tecnica di mesh Blender destinate alla stampa 3D.
+You are a high-level Art Director and 3D Quality Inspector, specialized in \
+aesthetic and technical evaluation of Blender meshes for 3D printing.
 
-Il tuo compito primario e' garantire che l'oggetto sia BELLO, RAFFINATO e \
-PERFETTAMENTE FEDELE all'intenzione artistica del prompt.
+Your primary task is to ensure the object is BEAUTIFUL, REFINED, and \
+PERFECTLY FAITHFUL to the artistic intent of the prompt.
 
-Ricevi 3 render ortografici della mesh prodotta (front, right, isometric) \
-insieme alla Specifica Tecnica originale e al Piano Algoritmico.
+You receive 3 orthographic renders of the produced mesh (front, right, isometric) \
+along with the original Technical Specification and Algorithmic Plan.
 
-CHECK V1 -- FEDELTA MORFOLOGICA AL PROMPT
-  * La silhouette generale corrisponde inequivocabilmente alla forma richiesta?
-  * OGNI dettaglio stilistico citato nel prompt e' visivamente presente?
-  * Le proporzioni H/D sono compatibili con le dimensioni specificate?
+CHECK V1 -- MORPHOLOGICAL FIDELITY TO PROMPT
+  * Does the overall silhouette unambiguously match the requested shape?
+  * Is EVERY stylistic detail mentioned in the prompt visually present?
+  * Are the H/D proportions compatible with the specified dimensions?
 
-CHECK V2 -- QUALITA ESTETICA E BELLEZZA  (PRIORITA MASSIMA)
-  * La forma ha carattere e identita visiva forte?
-  * Le superfici sono lisce e fluide con transizioni eleganti?
-  * Il dettaglio e' distribuito in modo armonioso?
+CHECK V2 -- AESTHETIC QUALITY AND BEAUTY  (MAXIMUM PRIORITY)
+  * Does the shape have strong character and visual identity?
+  * Are the surfaces smooth and fluid with elegant transitions?
+  * Is the detail distributed harmoniously?
 
-CHECK V3 -- QUALITA GEOMETRICA VISIVA
-  * Ci sono artefatti visivi: pieghe, scalini, discontinuita?
-  * Le normali sembrano corrette?
-  * Il fondo dell'oggetto sembra chiuso e rifinito?
+CHECK V3 -- VISUAL GEOMETRIC QUALITY
+  * Are there visual artifacts: wrinkles, steps, discontinuities?
+  * Do the normals appear correct?
+  * Does the bottom of the object appear closed and finished?
 
-CHECK V4 -- STAMPABILITA VISIVA
-  * Ci sono sbalzi > 45 senza supporto integrato?
-  * L'oggetto sembra solid/watertight?
+CHECK V4 -- VISUAL PRINTABILITY
+  * Are there overhangs > 45 without integrated support?
+  * Does the object appear solid/watertight?
 
 SCORING (0-10):
-  morphology:   10 = ogni dettaglio del prompt presente; 0 = forma sbagliata.
-  aesthetics:   10 = portfolio; 7 = buono; 5 = piatto; 0 = offensivo.
-  geometry:     10 = perfetto; 6+ = accettabile.
-  printability: 10 = perfetto; 6+ = stampabile.
+  morphology:   10 = every prompt detail present; 0 = wrong shape.
+  aesthetics:   10 = portfolio; 7 = good; 5 = flat; 0 = offensive.
+  geometry:     10 = perfect; 6+ = acceptable.
+  printability: 10 = perfect; 6+ = printable.
 
-REGOLA PASS: passed=true SOLO SE morphology >= 7 AND aesthetics >= 7 AND geometry >= 6 AND printability >= 6.
+PASS RULE: passed=true ONLY IF morphology >= 7 AND aesthetics >= 7 AND geometry >= 6 AND printability >= 6.
 
-Rispondi ESCLUSIVAMENTE con JSON:
+Reply EXCLUSIVELY with JSON:
 {
   "passed": <bool>,
   "scores": {"morphology": <0-10>, "aesthetics": <0-10>, "geometry": <0-10>, "printability": <0-10>},
-  "issues": ["<problema concreto>"],
-  "aesthetic_notes": "<valutazione estetica in 2-3 frasi>",
-  "fix_instructions": "<istruzioni di fix prioritizzate. Vuoto se passed=true>"
+  "issues": ["<concrete issue>"],
+  "aesthetic_notes": "<aesthetic evaluation in 2-3 sentences>",
+  "fix_instructions": "<prioritized fix instructions. Empty if passed=true>"
 }
 """
 
@@ -227,7 +227,7 @@ class VisionReviewer:
         with open(path, "rb") as f:
             data = f.read()
         if len(data) > _MAX_IMAGE_SIZE:
-            logger.warning("[VISION] Immagine %s troppo grande (%d bytes), resize necessario.", path, len(data))
+            logger.warning("[VISION] Image %s too large (%d bytes), resize needed.", path, len(data))
         return base64.b64encode(data).decode("utf-8")
 
     async def _call_vision_llm(
@@ -244,13 +244,13 @@ class VisionReviewer:
                 f"SPECIFICA TECNICA ORIGINALE:\n{enhanced_prompt}\n\n"
                 f"PIANO ALGORITMICO DI RIFERIMENTO:\n{math_plan}\n\n"
                 "Ecco i render ortografici della mesh prodotta.\n\n"
-                "FOCUS PRIMARIO: valuta la BELLEZZA e la FEDELTA ESTETICA al prompt."
+                "PRIMARY FOCUS: evaluate the BEAUTY and AESTHETIC FIDELITY to the prompt."
             ),
         })
 
-        view_labels = ["Vista FRONT", "Vista RIGHT", "Vista ISOMETRIC", "Vista TOP"]
+        view_labels = ["View FRONT", "View RIGHT", "View ISOMETRIC", "View TOP"]
         for i, path in enumerate(render_paths):
-            label = view_labels[i] if i < len(view_labels) else f"Vista {i+1}"
+            label = view_labels[i] if i < len(view_labels) else f"View {i+1}"
             b64   = self._encode_image(path)
             content.append({"type": "text", "text": label})
             content.append({
@@ -263,7 +263,7 @@ class VisionReviewer:
 
         content.append({
             "type": "text",
-            "text": "Esegui la verifica. Rispondi SOLO con JSON valido.",
+            "text": "Run the check. Reply ONLY with valid JSON.",
         })
 
         messages = [
@@ -283,7 +283,7 @@ class VisionReviewer:
                 timeout=60.0,
             )
         except asyncio.TimeoutError:
-            logger.warning("[VISION] Timeout chiamata LLM vision (60s). Review saltata.")
+            logger.warning("[VISION] Timeout calling vision LLM (60s). Review skipped.")
             return {"passed": True}
 
         raw = response.choices[0].message.content or ""
@@ -298,11 +298,11 @@ class VisionReviewer:
                     return json.loads(m.group())
                 except json.JSONDecodeError:
                     pass
-            logger.warning("[VISION] Risposta LLM non parsabile: %.100s", raw)
+            logger.warning("[VISION] LLM response not parseable: %.100s", raw)
             return {
                 "passed": True,
                 "scores": {"morphology": 7, "aesthetics": 7, "geometry": 7, "printability": 7},
-                "issues": [f"Risposta non parsabile: {raw[:200]}"],
+                "issues": [f"Response not parseable: {raw[:200]}"],
             }
 
     async def review(
@@ -312,7 +312,7 @@ class VisionReviewer:
         enhanced_prompt: str,
         math_plan: str,
     ) -> Tuple[bool, str]:
-        logger.info("F4.5: Vision Review -- render + analisi visiva")
+        logger.info("F4.5: Vision Review -- render + visual analysis")
 
         augmented = self.inject_render_code(script)
 
@@ -322,27 +322,27 @@ class VisionReviewer:
                 timeout=self.render_timeout,
             )
         except asyncio.TimeoutError:
-            logger.warning("[VISION] Timeout render (%ss). Review saltata.", self.render_timeout)
+            logger.warning("[VISION] Render timeout (%ss). Review skipped.", self.render_timeout)
             self._cleanup_renders(self.output_dir)
             return True, ""
         except Exception as exc:
-            logger.warning("[VISION] Errore runner durante render: %s", exc)
+            logger.warning("[VISION] Runner error during render: %s", exc)
             self._cleanup_renders(self.output_dir)
             return True, ""
 
         render_paths = self.extract_render_paths(run_output)
 
         if not render_paths:
-            logger.warning("[VISION] Nessun render prodotto. Review saltata.")
+            logger.warning("[VISION] No renders produced. Review skipped.")
             self._cleanup_renders(self.output_dir)
             return True, ""
 
-        logger.info("[VISION] %d render catturati -> vision LLM", len(render_paths))
+        logger.info("[VISION] %d renders captured -> vision LLM", len(render_paths))
 
         try:
             report = await self._call_vision_llm(render_paths, enhanced_prompt, math_plan)
         except Exception as exc:
-            logger.warning("[VISION] Errore LLM vision: %s. Review saltata.", exc)
+            logger.warning("[VISION] Vision LLM error: %s. Review skipped.", exc)
             self._cleanup_renders(self.output_dir)
             return True, ""
 
@@ -403,23 +403,23 @@ class VisionReviewer:
             threshold = thresholds.get(axis, 6.0)
             marker = "FAIL" if score < threshold else "PASS"
             label = {
-                "aesthetics":   "Estetica",
-                "morphology":   "Fedelta",
-                "geometry":     "Geometria",
-                "printability": "Stampabilita",
+                "aesthetics":   "Aesthetics",
+                "morphology":   "Fidelity",
+                "geometry":     "Geometry",
+                "printability": "Printability",
             }.get(axis, axis)
-            lines.append(f"  [{marker}] {label:<14} {score:>4.1f}/10  (soglia: {threshold:.0f})")
+            lines.append(f"  [{marker}] {label:<14} {score:>4.1f}/10  (threshold: {threshold:.0f})")
 
         if aesthetic_notes:
-            lines.append(f"\nNote estetiche:\n  {aesthetic_notes}")
+            lines.append(f"\nAesthetic notes:\n  {aesthetic_notes}")
 
         if issues:
-            lines.append("\nProblemi:")
+            lines.append("\nIssues:")
             for issue in issues:
                 lines.append(f"  * {issue}")
 
         if fix_instr:
-            lines.append(f"\nIstruzioni di fix visivo:\n{fix_instr[:2000]}")
+            lines.append(f"\nVisual fix instructions:\n{fix_instr[:2000]}")
 
         return "\n".join(lines)
 
@@ -431,10 +431,10 @@ class VisionReviewer:
 
         axis_order = ["aesthetics", "morphology", "geometry", "printability"]
         axis_labels = {
-            "aesthetics":   "Estetica",
-            "morphology":   "Fedelta",
-            "geometry":     "Geometria",
-            "printability": "Stampabilita",
+            "aesthetics":   "Aesthetics",
+            "morphology":   "Fidelity",
+            "geometry":     "Geometry",
+            "printability": "Printability",
         }
 
         logger.info("[VISION] %s", status)
@@ -453,3 +453,5 @@ class VisionReviewer:
         if issues:
             for issue in issues[:3]:
                 logger.info("[VISION]   Issue: %s", issue[:100])
+
+

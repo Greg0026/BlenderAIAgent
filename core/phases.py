@@ -39,7 +39,7 @@ async def f1_enhance(llm: LLMClient, original_prompt: str) -> str:
 
 async def f15_math_planner(llm: LLMClient, enhanced_prompt: str, original_prompt: str) -> str:
     sys_prompt = get_prompt("f15_math_planner.txt")
-    user_msg = f"SPECIFICA TECNICA:\n{enhanced_prompt}\n\nPROMPT ORIGINALE:\n{original_prompt}"
+    user_msg = f"TECHNICAL SPECIFICATION:\n{enhanced_prompt}\n\nORIGINAL PROMPT:\n{original_prompt}"
     return await llm.call(
         system=sys_prompt,
         messages=[{"role": "user", "content": user_msg}],
@@ -60,10 +60,10 @@ async def f2_codegen(
     pitfalls = get_prompt("common_pitfalls.txt")
     sys_prompt = _safe_format(
         sys_template,
-        doc_ctx=doc_ctx or "(nessuna documentazione rilevante trovata)",
+        doc_ctx=doc_ctx or "(no relevant documentation found)",
         pitfalls=pitfalls,
     )
-    user_msg = f"SPECIFICA TECNICA:\n{enhanced_prompt}\n\nPIANO ALGORITMICO:\n{math_plan}"
+    user_msg = f"TECHNICAL SPECIFICATION:\n{enhanced_prompt}\n\nALGORITHMIC PLAN:\n{math_plan}"
     return await llm.call(
         system=sys_prompt,
         messages=[{"role": "user", "content": user_msg}],
@@ -84,13 +84,13 @@ async def f3a_morph_review(
 ) -> str:
     sys_prompt = get_prompt("f3a_morph.txt")
     parts = [
-        f"PROMPT ORIGINALE: {original_prompt}",
-        f"SPECIFICA TECNICA: {enhanced_prompt}",
-        f"PIANO ALGORITMICO: {math_plan}",
+        f"ORIGINAL PROMPT: {original_prompt}",
+        f"TECHNICAL SPECIFICATION: {enhanced_prompt}",
+        f"ALGORITHMIC PLAN: {math_plan}",
     ]
     if prior_vision_feedback:
-        parts.append(f"FIX VISIVI GIÀ APPLICATI (NON DEFARE):\n{prior_vision_feedback}")
-    parts.append(f"SCRIPT DA REVISIONARE:\n```python\n{script}\n```")
+        parts.append(f"VISUAL FIXES ALREADY APPLIED (DO NOT UNDO):\n{prior_vision_feedback}")
+    parts.append(f"SCRIPT TO REVIEW:\n```python\n{script}\n```")
     user_msg = "\n\n".join(parts)
     return await llm.call(
         system=sys_prompt,
@@ -111,12 +111,12 @@ async def f3b_printability_review(
 ) -> str:
     sys_prompt = get_prompt("f3b_printability.txt")
     parts = [
-        f"SPECIFICA TECNICA:\n{enhanced_prompt}",
-        f"PIANO ALGORITMICO:\n{math_plan}",
+        f"TECHNICAL SPECIFICATION:\n{enhanced_prompt}",
+        f"ALGORITHMIC PLAN:\n{math_plan}",
     ]
     if prior_vision_feedback:
-        parts.append(f"FIX VISIVI GIÀ APPLICATI (NON DEFARE):\n{prior_vision_feedback}")
-    parts.append(f"SCRIPT DA REVISIONARE:\n```python\n{script}\n```")
+        parts.append(f"VISUAL FIXES ALREADY APPLIED (DO NOT UNDO):\n{prior_vision_feedback}")
+    parts.append(f"SCRIPT TO REVIEW:\n```python\n{script}\n```")
     user_msg = "\n\n".join(parts)
     return await llm.call(
         system=sys_prompt,
@@ -156,11 +156,11 @@ async def f6_targeted_fix(
     sys_prompt = _safe_format(
         sys_template,
         error=error,
-        doc_ctx=doc_ctx or "(nessuna documentazione rilevante)",
+        doc_ctx=doc_ctx or "(no relevant documentation)",
         pitfalls=pitfalls,
         error_history=error_history,
     )
-    user_msg = f"SCRIPT DA CORREGGERE:\n```python\n{script}\n```"
+    user_msg = f"SCRIPT TO FIX:\n```python\n{script}\n```"
     result = await llm.call(
         system=sys_prompt,
         messages=[{"role": "user", "content": user_msg}],
@@ -182,7 +182,7 @@ async def f6_vision_fix(
 ) -> str:
     sys_template = get_prompt("f6_vis_fix.txt")
     sys_prompt = _safe_format(sys_template, vision_report=vision_report, error_history=error_history)
-    user_msg = f"SCRIPT DA CORREGGERE:\n```python\n{script}\n```"
+    user_msg = f"SCRIPT TO FIX:\n```python\n{script}\n```"
     return await llm.call(
         system=sys_prompt,
         messages=[{"role": "user", "content": user_msg}],

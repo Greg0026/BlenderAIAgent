@@ -55,9 +55,9 @@ def validate_api_keys() -> None:
     )
     if not has_any:
         raise EnvironmentError(
-            "Nessuna API key trovata. Imposta almeno una tra: "
+            "No API key found. Set at least one of: "
             "NVIDIA_API_KEY, OPENROUTER_API_KEY, OPENCODE_ZEN_API_KEY. "
-            "Copia .env.example in .env e inserisci i valori."
+            "Copy .env.example to .env and fill in the values."
         )
 
 

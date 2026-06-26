@@ -38,8 +38,8 @@ class BlenderRunner:
                 process.kill()
                 await process.communicate()
                 return False, (
-                    f"TIMEOUT: Blender non ha terminato entro {_timeout}s. "
-                    "Script probabilmente in loop infinito o con operazioni troppo costose."
+                    f"TIMEOUT: Blender did not finish within {_timeout}s. "
+                    "Script likely in infinite loop or with overly expensive operations."
                 )
 
             out_str = stdout.decode("utf-8", errors="replace")
@@ -50,7 +50,7 @@ class BlenderRunner:
             if is_hard_crash:
                 return False, (
                     f"BLENDER_CRASH: returncode={process.returncode}. "
-                    "Blender è crashato (segfault, GPU error, o out-of-memory). "
+                    "Blender crashed (segfault, GPU error, or out-of-memory). "
                     "Ultime righe output:\n" + "\n".join(full_output.splitlines()[-20:])
                 )
 
@@ -72,11 +72,11 @@ class BlenderRunner:
 
         except FileNotFoundError:
             return False, (
-                f"Eseguibile Blender non trovato: '{self.blender_exe}'. "
-                "Imposta BLENDER_PATH in .env"
+                f"Blender executable not found: '{self.blender_exe}'. "
+                "Set BLENDER_PATH in .env"
             )
         except Exception as e:
-            return False, f"Errore interno del subprocess runner: {str(e)}"
+            return False, f"Internal subprocess runner error: {str(e)}"
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
