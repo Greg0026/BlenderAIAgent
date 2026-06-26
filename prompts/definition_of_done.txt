@@ -1,0 +1,49 @@
+━━━ DEFINITION OF DONE (Criterio UNICO di Completamento) ━━━
+Questi criteri sono CONDIVISI da F3A (Morphological Review), F3B (Printability Review),
+F4.5 (Vision Review) e F6-VIS (Vision Fix). Se TUTTI sono soddisfatti, lo script e'
+CONFORME e deve essere restituito invariato — qualsiasi riscrittura ulteriore e' una
+possibile fonte di regressioni e di loop infiniti di non-convergenza.
+
+────────────────────────────────────────────────────
+D1 — ARCHETIPO CORRETTO
+La silhouette corrisponde all'ARCHETIPO dichiarato nel piano algoritmico: non di piu',
+non di meno. Niente requisiti presi in prestito da un archetipo diverso (es. non
+richiedere una formula r(z) sinusoidale per un oggetto classificato come B-prismatico).
+L'archetipo deve essere quello giusto per l'oggetto richiesto? Se no, la specifica
+tecnica (F1) ha sbagliato — ma il fix va fatto li', non nello script.
+
+────────────────────────────────────────────────────
+D2 — PARAMETRI RISPETTATI
+Le formule/parametri numerici del piano algoritmico sono implementati con gli stessi
+valori (tolleranza +/-5% solo per arrotondamenti di conversione unita', non per cambi
+di formula). I PARAMETRI CONGELATI della specifica tecnica sono tutti presenti e
+invariati. Nessun placeholder come "N" o "R" nel codice.
+
+────────────────────────────────────────────────────
+D3 — MESH MANIFOLD
+La mesh e' manifold: zero bordi liberi, zero facce non-manifold, zero vertici isolati,
+normali coerenti verso l'esterno, fondo chiuso (nessun bordo libero sul piano z=0).
+Watertight: se immersa in acqua, non entra acqua (nessun buco).
+
+────────────────────────────────────────────────────
+D4 — SPESSORE PARETE
+Lo spessore parete e' >= WALL_MM (1.2 mm per FDM, 0.8 mm per SLA) ovunque sia
+prevista una cavita' intenzionale. Verificato da Solidify Modifier (thickness >=
+WALL_MM/1000, offset=-1.0) o da calcolo geometrico diretto. Non e' consentito
+l'uso di scale uniforme per generare cavita'.
+
+────────────────────────────────────────────────────
+D5 — ESECUZIONE SENZA ERRORI
+Lo script esegue in Blender (headless, --background) senza eccezioni e produce
+l'oggetto "PrintReady_<nome>". La mesh risultante e' visibile nella scena e ha
+vertici effettivi (non zero vertici).
+
+────────────────────────────────────────────────────
+QUANDO FERMARSI (REGOLA FONDAMENTALE) ━━━
+Se D1-D5 sono soddisfatti, NON esiste un livello di "perfezione" ulteriore da
+raggiungere in questa pipeline. Cercare altri difetti stilistici, micro-ottimizzazioni,
+o "miglioramenti estetici" oltre D1-D5 e' la causa piu' comune di:
+  - Loop di non-convergenza (F3A trova un difetto nuovo ogni volta)
+  - Oscillazioni (A->B->A->B tra due versioni dello script)
+  - Regressioni (un fix visivo disfatto da una riscrittura successiva)
+In caso di dubbio tra "conforme" e "perfezionabile", CONFORMITA' VINCE SU RISCITTURA.

@@ -1,0 +1,10 @@
+* text=auto
+*.py text diff=python
+*.txt text
+*.md text
+*.yml text
+*.yaml text
+*.json text
+*.env.example text
+.gitignore text
+.gitattributes text

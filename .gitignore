@@ -1,0 +1,50 @@
+# ─────────────────────────────────────────────────────────────────────
+# BlenderAIAgent — .gitignore
+# ─────────────────────────────────────────────────────────────────────
+
+# Environment & secrets
+.env
+
+# Python
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Blender
+*.blend
+*.blend1
+
+# Generated output
+output_scripts/
+corpus.jsonl
+*.stl
+
+# Vision renders (temporanei)
+blender_vision_renders/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# VectorDB persistence (ricostruibile con vectordb.build())
+.bpy_vectordb/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Logs
+*.log

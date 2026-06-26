@@ -1,0 +1,87 @@
+━━━ ARCHETIPI GEOMETRICI (Guida Completa) ━━━
+Scegli UNO SOLO per ogni oggetto. Non forzare l'oggetto in un archetipo sbagliato:
+ogni archetipo ha requisiti e formalismi specifici. Mischiarli genera specifiche
+interne contraddittorie che il loop di review non potra' mai risolvere.
+
+────────────────────────────────────────────────────
+A. SUPERFICIE DI RIVOLUZIONE
+────────────────────────────────────────────────────
+Oggetti: vasi, bottiglie, candele, anelli, ciotole, bicchieri, colonne, paralumi
+          sferici, oggetti a simmetria assiale completa (360 gradi).
+Metodo: profilo r(z) parametrico generato per rivoluzione con bmesh.
+        Ogni vertice e' in coordinate (r(z)*cos(theta), r(z)*sin(theta), z).
+Parametri:
+  N_SEGS >= 128  (numero di segmenti angolari — risoluzione orizzontale)
+  N_RINGS >= 64  (numero di loop verticali — risoluzione del profilo)
+  Profilo: r(z) = r_base * (1 + A * sin(pi * z / H)) con A e H espliciti
+           oppure punti di controllo spline interpolati
+  Spessore: Solidify offset=-1.0, thickness >= WALL_MM/1000
+  Fondo: fan fill (bmesh.ops.poke) o grid fill sul loop a z=0
+Da evitare: raggio costante per tutto il profilo (se il piano prevede modulazione);
+           N_SEGS < 64 (produce poligoni visibili sulla superficie curva).
+
+────────────────────────────────────────────────────
+B. SOLIDO PRISMATICO / MECCANICO
+────────────────────────────────────────────────────
+Oggetti: scatole, staffe, supporti, custodie, basi, scatole di derivazione,
+          telai, oggetti a facce prevalentemente piatte e spigoli vivi.
+Metodo: Si parte da un blocco/profilo poligonale (anche una primitiva come base),
+        poi si aggiungono bevel/fillet sugli spigoli e feature via booleane/inset.
+Parametri:
+  Dimensioni blocco base: L x P x H in mm
+  Raggio bevel: esplicito in mm per ogni spigolo
+  Segmenti bevel >= 16 per arco curvo
+  Feature: fori (posizione, diametro), nervature (posizione, L x P x H),
+           alette (posizione, spessore, altezza)
+  Pareti: Solidify oppure spessore gestito nella costruzione bmesh
+  NON servono r(z) ne' >=128 segmenti: quei conteggi si applicano solo ai
+    raccordi curvi, non all'intero solido.
+Da evitare: primitiva lasciata completamente invariata (senza feature, senza
+           bevel, senza spessore); richiedere >=128 segmenti per facce piatte.
+
+────────────────────────────────────────────────────
+C. INGRANAGGIO / PROFILO INVOLUTO
+────────────────────────────────────────────────────
+Oggetti: ingranaggi, ruote dentate, cremagliere, pignoni.
+Metodo: profilo a dente involuto esplicito con bmesh, estruso sull'asse.
+Formula dente involuto:
+  x = r_b * (cos(theta) + theta * sin(theta))
+  y = r_b * (sin(theta) - theta * cos(theta))
+  dove r_b = raggio di base, theta da 0 a theta_max
+Parametri: modulo, numero denti, angolo pressione (default 20 gradi),
+          spessore dente, diametro primitivo, diametro di testa, diametro di fondo.
+
+────────────────────────────────────────────────────
+D. ELICA / FILETTATURA
+────────────────────────────────────────────────────
+Oggetti: viti, molle, spirali, scale a chiocciola, eliche.
+Metodo: vertici bmesh generati con equazioni parametriche:
+  x(t) = R(t) * cos(t)
+  y(t) = R(t) * sin(t)
+  z(t) = pitch * t / (2 * pi)
+  per t da 0 a N_giro * 2 * pi
+Parametri: raggio R, pitch (passo per giro), N_loop (numero di giri),
+          spessore sezione, N_SEGS per giro >= 32.
+
+────────────────────────────────────────────────────
+E. ASSEMBLAGGIO DI PARTI
+────────────────────────────────────────────────────
+Oggetti: oggetti composti da piu' parti distinte, ciascuna istanza di uno
+          degli archetipi A-D, unite o sottratte con operazioni booleane sicure.
+Metodo: costruisci ogni parte separatamente con l'archetipo corrispondente,
+        poi combina con Boolean UNION (unione) o DIFFERENCE (sottrazione).
+Requisiti:
+  Elencare ogni sotto-componente con il proprio archetipo e parametri
+  Specificare coordinate relative di posizionamento
+  Specificare operazione booleana per ogni unione
+  Verificare che le interfacce tra parti siano manifold prima della booleana
+  Le unioni possono essere fatte anche con Join (bpy.ops.object.join) se le
+    parti non si sovrappongono; le sottrazioni richiedono Boolean Difference.
+
+────────────────────────────────────────────────────
+REGOLA GENERALE
+────────────────────────────────────────────────────
+Una primitiva grezza (cubo, sfera, cilindro SENZA modifiche) e' VIETATA perche'
+non costituisce un oggetto stampabile. Una primitiva usata come BASE e poi
+MODIFICATA con boolean, solidify, subdivision, bevel, o deformazione e'
+ACCETTABILE e anzi raccomandata per l'archetipo B.
