@@ -2,7 +2,7 @@ import asyncio
 from typing import Dict, Optional
 
 from cfg import CFG
-from core.llm import LLMClient, get_prompt
+from core.llm import LLMClient, get_prompt, model_for_phase
 from log import logger
 
 _TEMP_LOW = 0.05
@@ -34,6 +34,7 @@ async def f1_enhance(llm: LLMClient, original_prompt: str) -> str:
         label="F1_ENHANCE",
         do_extract_code=False,
         temperature=_TEMP_MED,
+        model=model_for_phase("enhance"),
     )
 
 
@@ -47,6 +48,7 @@ async def f15_math_planner(llm: LLMClient, enhanced_prompt: str, original_prompt
         do_extract_code=False,
         temperature=_TEMP_LOW,
         max_tokens=CFG.get("max_tokens", 16384),
+        model=model_for_phase("enhance"),
     )
 
 
@@ -71,6 +73,7 @@ async def f2_codegen(
         do_extract_code=True,
         temperature=_TEMP_LOW,
         max_tokens=CFG.get("f2_max_tokens", 40000),
+        model=model_for_phase("codegen"),
     )
 
 
@@ -82,7 +85,14 @@ async def f3a_morph_review(
     original_prompt: str,
     prior_vision_feedback: str = "",
 ) -> str:
-    sys_prompt = get_prompt("f3a_morph.txt")
+    sys_template = get_prompt("f3a_morph.txt")
+    sys_prompt = _safe_format(
+        sys_template,
+        original_prompt=original_prompt,
+        enhanced_prompt=enhanced_prompt,
+        math_plan=math_plan,
+        prior_vision_feedback=prior_vision_feedback or "Nessun fix visivo precedente.",
+    )
     parts = [
         f"ORIGINAL PROMPT: {original_prompt}",
         f"TECHNICAL SPECIFICATION: {enhanced_prompt}",
@@ -99,6 +109,7 @@ async def f3a_morph_review(
         do_extract_code=True,
         temperature=_TEMP_LOW,
         max_tokens=CFG.get("f2_max_tokens", 40000),
+        model=model_for_phase("review"),
     )
 
 
@@ -109,7 +120,12 @@ async def f3b_printability_review(
     math_plan: str,
     prior_vision_feedback: str = "",
 ) -> str:
-    sys_prompt = get_prompt("f3b_printability.txt")
+    sys_template = get_prompt("f3b_printability.txt")
+    sys_prompt = _safe_format(
+        sys_template,
+        enhanced_prompt=enhanced_prompt,
+        prior_vision_feedback=prior_vision_feedback or "Nessun fix visivo precedente.",
+    )
     parts = [
         f"TECHNICAL SPECIFICATION:\n{enhanced_prompt}",
         f"ALGORITHMIC PLAN:\n{math_plan}",
@@ -125,6 +141,7 @@ async def f3b_printability_review(
         do_extract_code=True,
         temperature=_TEMP_LOW,
         max_tokens=CFG.get("f2_max_tokens", 40000),
+        model=model_for_phase("review"),
     )
 
 
@@ -145,7 +162,7 @@ async def f6_targeted_fix(
 ) -> str:
     ck = _cache_key(script, error, _run_id)
     if ck in _FIX_CACHE:
-        logger.info("F6 fix cache HIT per errore: %s...", error[:60])
+        logger.info("F6 fix cache HIT for error: %s...", error[:60])
         return _FIX_CACHE[ck]
 
     if len(_FIX_CACHE) >= _FIX_CACHE_MAX:
@@ -168,6 +185,7 @@ async def f6_targeted_fix(
         do_extract_code=True,
         temperature=_TEMP_LOW,
         max_tokens=CFG.get("f2_max_tokens", 40000),
+        model=model_for_phase("fix"),
     )
 
     _FIX_CACHE[ck] = result
@@ -190,4 +208,5 @@ async def f6_vision_fix(
         do_extract_code=True,
         temperature=_TEMP_LOW,
         max_tokens=CFG.get("f2_max_tokens", 40000),
+        model=model_for_phase("fix"),
     )

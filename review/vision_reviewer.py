@@ -238,15 +238,15 @@ class VisionReviewer:
     ) -> dict:
         content: list[dict] = []
 
-        content.append({
-            "type": "text",
-            "text": (
-                f"SPECIFICA TECNICA ORIGINALE:\n{enhanced_prompt}\n\n"
-                f"PIANO ALGORITMICO DI RIFERIMENTO:\n{math_plan}\n\n"
-                "Ecco i render ortografici della mesh prodotta.\n\n"
-                "PRIMARY FOCUS: evaluate the BEAUTY and AESTHETIC FIDELITY to the prompt."
-            ),
-        })
+            content.append({
+                "type": "text",
+                "text": (
+                    f"ORIGINAL TECHNICAL SPECIFICATION:\n{enhanced_prompt}\n\n"
+                    f"REFERENCE ALGORITHMIC PLAN:\n{math_plan}\n\n"
+                    "Here are the orthographic renders of the produced mesh.\n\n"
+                    "PRIMARY FOCUS: evaluate the BEAUTY and AESTHETIC FIDELITY to the prompt."
+                ),
+            })
 
         view_labels = ["View FRONT", "View RIGHT", "View ISOMETRIC", "View TOP"]
         for i, path in enumerate(render_paths):

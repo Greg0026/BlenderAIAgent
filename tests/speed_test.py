@@ -115,9 +115,9 @@ def print_table(rows: list[dict]):
 
 async def main():
     parser = argparse.ArgumentParser(description="Speed test API LLM")
-    parser.add_argument("--model", help="Test solo un modello specifico")
+    parser.add_argument("--model", help="Test only a specific model")
     parser.add_argument("--provider", choices=["nvidia", "openrouter", "opencodezen"],
-                        help="Test solo un provider specifico")
+                        help="Test only a specific provider")
     parser.add_argument("--timeout", type=int, default=120, help="Timeout primo token (default: 120)")
     args = parser.parse_args()
 
@@ -129,7 +129,7 @@ async def main():
     print(f"  Base URL:  {base_url}")
     print(f"  Provider:  {provider}")
     print(f"  API Key:   {api_key[:12]}...{api_key[-4:]}" if len(api_key) > 16 else "  API Key:   [not found]")
-    print(f"  Modello principale: {CFG['model_id']}")
+    print(f"  Main model: {CFG['model_id']}")
     print(f"  Fallback: {CFG['fallback_models']}")
     print(f"  First chunk timeout cfg: {CFG.get('first_chunk_timeout', 30)}s")
     print(f"  Phase timeout cfg: {CFG.get('phase_timeout', 300)}s")

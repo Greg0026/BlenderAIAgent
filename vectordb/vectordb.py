@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from log import logger
+
 try:
     import chromadb
     from sentence_transformers import SentenceTransformer
@@ -175,7 +177,7 @@ _SAFE_BOOLEAN = '''\
 import bpy, bmesh
 def safe_boolean(body, cutter):
     if body.type != 'MESH' or cutter.type != 'MESH':
-        raise TypeError("Entrambi gli oggetti devono essere MESH")
+        raise TypeError("Both objects must be MESH")
     for obj in (body, cutter):
         bpy.context.view_layer.objects.active = obj
         bpy.ops.object.select_all(action='DESELECT')
@@ -379,13 +381,13 @@ def solidify_then_boolean(body, cutter, thickness=0.002):
 
 CORPUS: list[dict] = [
     {"id": "reset_scene", "collection": "official_docs",
-     "description": "Deletes all mesh objects from the scene.",
+     "description": "Delete all mesh objects from the scene.",
      "tags": ["reset", "delete", "scene", "clean"], "code": _RESET_SCENE},
     {"id": "boolean_difference_safe", "collection": "official_docs",
      "description": "Boolean DIFFERENCE with transform_apply and solver EXACT.",
      "tags": ["boolean", "difference", "cutter", "exact"], "code": _BOOLEAN_DIFFERENCE},
     {"id": "primitive_cylinder", "collection": "official_docs",
-     "description": "Creates a parameterized cylinder with configurable N sides.",
+     "description": "Create parameterized cylinder with configurable number of sides.",
      "tags": ["cylinder", "primitive", "mesh", "radius"], "code": _CYLINDER},
     {"id": "solidify_shell", "collection": "official_docs",
      "description": "Solidify for wall thickness, offset -1 for 3D printing.",
@@ -394,22 +396,22 @@ CORPUS: list[dict] = [
      "description": "Weld + normals_make_consistent for manifold mesh.",
      "tags": ["weld", "normals", "manifold", "merge", "repair"], "code": _WELD_NORMALS},
     {"id": "export_stl", "collection": "official_docs",
-     "description": "Exports STL with global_scale=1000 for slicer.",
+     "description": "Export STL with global_scale=1000 for slicer.",
      "tags": ["export", "stl", "slicer", "scale"], "code": _EXPORT_STL},
     {"id": "remesh_voxel", "collection": "community_code",
      "description": "Voxel remesh to uniform density before boolean.",
      "tags": ["remesh", "voxel", "cleanup", "density"], "code": _REMESH_VOXEL},
     {"id": "fill_holes_nonmanifold", "collection": "community_code",
-     "description": "Closes holes in mesh via select_non_manifold.",
+     "description": "Close holes in mesh via select_non_manifold.",
      "tags": ["fill", "holes", "non-manifold", "watertight"], "code": _FILL_HOLES},
     {"id": "bmesh_merge_vertices", "collection": "community_code",
-     "description": "Merges duplicate vertices via bmesh.remove_doubles.",
+     "description": "Merge duplicate vertices via bmesh.remove_doubles.",
      "tags": ["bmesh", "merge", "doubles", "vertices", "weld"], "code": _BMESH_MERGE},
     {"id": "create_text_object", "collection": "community_code",
      "description": "3D text converted to mesh for engraving.",
      "tags": ["text", "font", "label", "engrave", "convert"], "code": _TEXT_OBJECT},
     {"id": "copy_object", "collection": "community_code",
-     "description": "Duplicates object with offset for repetitive patterns.",
+     "description": "Duplicate object with offset for repetitive patterns.",
      "tags": ["duplicate", "copy", "clone", "array"], "code": _DUPLICATE_OBJECT},
     {"id": "diagnose_non_manifold", "collection": "error_patterns",
      "description": "Diagnostics: non-manifold, zero faces, loose vertices.",
@@ -418,19 +420,19 @@ CORPUS: list[dict] = [
      "description": "Boolean with type validation and pre/post scale check.",
      "tags": ["boolean", "validation", "safe", "robust"], "code": _SAFE_BOOLEAN},
     {"id": "primitive_sphere", "collection": "official_docs",
-     "description": "Creates a parameterized UV sphere with configurable segments.",
+     "description": "Create parameterized UV sphere with configurable segments.",
      "tags": ["sphere", "primitive", "mesh", "uv sphere", "segments"], "code": _SPHERE},
     {"id": "primitive_cone", "collection": "official_docs",
-     "description": "Creates a parameterized cone with configurable vertices and depth.",
+     "description": "Create parameterized cone with configurable vertices and depth.",
      "tags": ["cone", "primitive", "mesh", "vertices"], "code": _CONE},
     {"id": "primitive_torus", "collection": "official_docs",
-     "description": "Creates a parameterized torus with configurable radii and segments.",
+     "description": "Create parameterized torus with configurable radii and segments.",
      "tags": ["torus", "primitive", "mesh", "ring", "donut"], "code": _TORUS},
     {"id": "modifier_array", "collection": "community_code",
      "description": "Array modifier with count and offset for linear repetitive patterns.",
      "tags": ["array", "modifier", "pattern", "repeat", "linear"], "code": _ARRAY_MODIFIER},
     {"id": "modifier_mirror", "collection": "community_code",
-     "description": "Mirror modifier with auto-merge for symmetry.",
+     "description": "Mirror modifier with automatic merge for symmetry.",
      "tags": ["mirror", "modifier", "symmetry", "merge", "axis"], "code": _MIRROR_MODIFIER},
     {"id": "modifier_screw", "collection": "community_code",
      "description": "Screw modifier for revolutions and spirals (lathe).",
@@ -439,22 +441,22 @@ CORPUS: list[dict] = [
      "description": "Bevel modifier to chamfer sharp edges with controlled segments.",
      "tags": ["bevel", "modifier", "chamfer", "edge", "smooth"], "code": _BEVEL_MODIFIER},
     {"id": "modifier_decimate", "collection": "community_code",
-     "description": "Decimate modifier to reduce polygon count while maintaining shape.",
+     "description": "Decimate modifier to reduce polygon count while preserving shape.",
      "tags": ["decimate", "modifier", "optimize", "polygons", "simplify"], "code": _DECIMATE_MODIFIER},
     {"id": "boolean_union_safe", "collection": "official_docs",
      "description": "Boolean UNION with transform_apply and solver EXACT to merge meshes.",
      "tags": ["boolean", "union", "merge", "combine", "exact"], "code": _BOOLEAN_UNION},
     {"id": "assign_material_basic", "collection": "community_code",
-     "description": "Assigns a basic material to a mesh object with diffuse color.",
+     "description": "Assign a basic material to a mesh object with diffuse color.",
      "tags": ["material", "color", "assign", "shader", "diffuse"], "code": _MATERIAL_ASSIGN},
     {"id": "bezier_curve_to_mesh", "collection": "community_code",
-     "description": "Creates a 3D Bezier curve from control points and converts to mesh.",
+     "description": "Create 3D Bezier curve from control points and convert to mesh.",
      "tags": ["curve", "bezier", "spline", "convert", "extrude"], "code": _CURVE_BEZIER},
     {"id": "uv_smart_project", "collection": "community_code",
      "description": "Automatic UV unwrap with smart project for texture mapping.",
      "tags": ["uv", "unwrap", "smart", "texture", "mapping"], "code": _UV_UNWRAP},
     {"id": "modifier_displace", "collection": "community_code",
-     "description": "Displace modifier for texture or noise based deformation.",
+     "description": "Displace modifier for deformation based on texture or noise.",
      "tags": ["displace", "modifier", "deform", "noise", "texture"], "code": _DISPLACE_MODIFIER},
     {"id": "solidify_then_boolean_sequence", "collection": "error_patterns",
      "description": "Apply Solidify BEFORE Boolean: correct order for manifold mesh.",
@@ -473,7 +475,7 @@ class VectorDB:
 
     def _ensure_deps(self) -> None:
         if not _DEPS_OK:
-            raise ImportError("chromadb and sentence-transformers required. pip install chromadb sentence-transformers")
+            raise ImportError("chromadb e sentence-transformers richiesti. pip install chromadb sentence-transformers")
 
     def _init_client(self) -> None:
         if self._client is not None:
@@ -503,6 +505,13 @@ class VectorDB:
                 metadata={"hnsw:space": "cosine"},
             )
             self._collections[coll_name] = collection
+
+        all_populated = all(
+            c.count() > 0 for c in self._collections.values()
+        )
+        if all_populated and not force_rebuild:
+            logger.info("VectorDB skip rebuild — already populated (%d collections)", len(self._collections))
+            return
 
         by_coll: dict[str, list] = {n: [] for n in collection_names}
         for doc in CORPUS:
@@ -593,10 +602,13 @@ class VectorDB:
 
     async def search_all(self, query: str, n_per_collection: int = 2) -> str:
         all_collections = ["official_docs", "community_code", "error_patterns"]
+        coros = [self.search(query, coll, n_results=n_per_collection) for coll in all_collections]
+        results = await asyncio.gather(*coros, return_exceptions=True)
         parts = []
-        for coll in all_collections:
-            result = await self.search(query, coll, n_results=n_per_collection)
-            if result:
+        for coll, result in zip(all_collections, results):
+            if isinstance(result, Exception):
+                logger.warning("VectorDB search_all fallito per %s: %s", coll, result)
+            elif result:
                 parts.append(f"# === {coll} ===\n{result}")
         return "\n\n".join(parts)
 

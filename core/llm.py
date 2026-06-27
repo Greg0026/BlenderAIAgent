@@ -99,7 +99,7 @@ class LLMClient:
     def _llm_extra_body() -> dict:
         base = CFG.get("base_url", "").lower()
         if "nvidia" in base:
-            return {"chat_template_kwargs": {"enable_thinking": True, "clear_thinking": True}}
+            return {"chat_template_kwargs": {"enable_thinking": False, "clear_thinking": True}}
         return {}
 
     async def _try_model(

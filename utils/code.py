@@ -1,4 +1,4 @@
-"""Utilities for extracting and manipulating Python code from LLM responses.
+"""Utility for extracting and manipulating Python code from LLM responses.
 
 Provides functions for:
   - Extracting Python code from LLM responses (containing markdown, explanations)
@@ -7,7 +7,7 @@ Provides functions for:
   - Truncating long errors to a manageable length for LLM context
 
 These functions are used by core/llm.py, core/orchestrator.py and
-pipeline phases to process model responses.
+by the pipeline phases to process model responses.
 """
 
 import re
@@ -15,17 +15,17 @@ from typing import Optional
 
 
 def extract_code(text: str) -> Optional[str]:
-    """Extracts Python code from an LLM response that may contain markdown.
+    """Extract Python code from an LLM response that may contain markdown.
 
     Extraction strategy (in order):
     1. Look for ```python ... ``` or ``` ... ``` blocks (fence)
     2. Look for inline `...` code with import bpy
     3. Look for lines starting with import bpy/bmesh or containing bpy.
        WARNING: avoids false positives on comments (# bpy...) thanks
-       to the \\bbpy\\. regex pattern (word boundary).
+       to the regex pattern \\bbpy\\. (word boundary).
 
     Args:
-        text: LLM text response (may contain explanations).
+        text: Text response from the LLM (may contain explanations).
 
     Returns:
         Extracted Python code, or None if no valid code detected.
@@ -80,18 +80,18 @@ def extract_code(text: str) -> Optional[str]:
 
 
 def extract_error_section(output: str, max_lines: int = 60) -> str:
-    """Extracts the traceback section from Blender output.
+    """Extract the traceback section from Blender output.
 
-    Searches for the "Traceback (most recent call last):" marker and returns
+    Looks for the marker "Traceback (most recent call last):" and returns
     the following lines up to max_lines. If no traceback is found,
-    returns the last max_lines lines of the output.
+    returns the last max_lines lines of output.
 
     Args:
         output: Full Blender output (stdout + stderr).
         max_lines: Maximum number of lines to include.
 
     Returns:
-        Traceback section or last lines of the output.
+        Traceback section or last lines of output.
     """
     lines = output.splitlines()
     try:
@@ -102,16 +102,17 @@ def extract_error_section(output: str, max_lines: int = 60) -> str:
         )
         return "\n".join(lines[start:start + max_lines])
     except StopIteration:
-        return "\n".join(lines[-max_lines:])
+        end = max(len(lines) - max_lines, 0)
+        return "\n".join(lines[end:])
 
 
 def format_error_for_query(error_text: str) -> str:
-    """Formats an error for use as a VectorDB query.
+    """Format an error to use as a query in the VectorDB.
 
     Extracts the most significant lines from the error (Error, Warning, Exception)
     to create a compact semantic query. Avoids using the entire stack
-    trace (dozens of lines) as a query, which would produce irrelevant results
-    from the vector database.
+    trace (dozens of lines) as a query, which would produce irrelevant
+    results from the vector database.
 
     Args:
         error_text: Full error text (stack trace).
@@ -127,14 +128,14 @@ def format_error_for_query(error_text: str) -> str:
 
 
 def summarize_error(error_text: str, max_len: int = 300) -> str:
-    """Truncates a long error to a maximum length for LLM context.
+    """Truncate a long error to a maximum length for LLM context.
 
     Takes the last max_len characters (where the most useful part
     of the stack trace is: the error message and the last calls).
 
     Args:
         error_text: Full error text.
-        max_len: Maximum character length of the result.
+        max_len: Maximum length in characters of the result.
 
     Returns:
         Truncated error (from the end).

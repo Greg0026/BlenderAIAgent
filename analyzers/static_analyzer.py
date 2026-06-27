@@ -76,7 +76,7 @@ class StaticAnalyzer:
                 if isinstance(node.func, ast.Name):
                     if node.func.id in self.DANGEROUS_BUILTINS:
                         issues.append(
-                            f"ERR_UNSAFE: Blocked built-in function '{node.func.id}'."
+                            f"ERR_UNSAFE: Blocked native function '{node.func.id}'."
                         )
 
                 if isinstance(node.func, ast.Attribute):
@@ -86,13 +86,13 @@ class StaticAnalyzer:
                         and node.func.attr in self.DANGEROUS_OS_CALLS
                     ):
                         issues.append(
-                            f"ERR_UNSAFE: Dangerous call 'os.{node.func.attr}' forbidden."
+                            f"ERR_UNSAFE: Forbidden dangerous call 'os.{node.func.attr}'."
                         )
 
         if not self._has_scene_reset(tree):
             issues.append(
                 "WARN_SCENE: No scene reset (select_all + delete). "
-                "Residual geometry from the default scene will cause issues."
+                "Residual geometry from the default scene will cause problems."
             )
 
         code_upper = code.upper()
@@ -105,7 +105,7 @@ class StaticAnalyzer:
             if "solver" not in code_lower:
                 issues.append(
                     "WARN_BOOL: Boolean without explicit solver='EXACT'. "
-                    "Using FAST solver may generate non-manifold meshes."
+                    "Using FAST solver can generate non-manifold mesh."
                 )
 
         has_solidify = "SOLIDIFY" in code_upper
@@ -115,7 +115,7 @@ class StaticAnalyzer:
 
         if not has_weld:
             issues.append(
-                "WARN_3DP: No vertex welding (Weld/remove_doubles). "
+                "WARN_3DP: No vertex weld (Weld/remove_doubles). "
                 "Duplicate vertices cause slicer failure."
             )
 
@@ -127,8 +127,7 @@ class StaticAnalyzer:
 
         if not has_stl_export:
             issues.append(
-                "INFO_EXPORT: No STL export in script (expected: "
-                "export is handled by the external runner)."
+                "INFO_NOOP: STL export not present (ok: handled by external runner)."
             )
 
         errors = [i for i in issues if i.startswith("ERR")]

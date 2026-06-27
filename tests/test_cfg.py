@@ -1,4 +1,4 @@
-"""Test per cfg.py — validazione API keys e parsing."""
+"""Tests for cfg.py — API keys validation and parsing."""
 import os
 import pytest
 from contextlib import contextmanager

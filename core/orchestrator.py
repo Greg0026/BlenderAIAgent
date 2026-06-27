@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import os
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Tuple
@@ -13,10 +14,10 @@ from core.phases import (
     f3b_printability_review,
     f6_targeted_fix,
     f6_vision_fix,
+    _set_run_id,
 )
 from log import logger
 from utils.code import format_error_for_query, summarize_error
-from core.phases import _set_run_id
 from utils.errors import ErrorHistory, OscillationDetector
 from analyzers.mesh_validator import MeshValidator
 
@@ -64,17 +65,16 @@ class Orchestrator:
                     vision_model=CFG.get("vision_model", "moonshotai/kimi-k2.6"),
                 )
             except ImportError:
-                logger.warning("VisionReviewer not available, disabling vision review.")
+                logger.warning("VisionReviewer not available, disabling vision.")
                 self.vision_enabled = False
 
     async def run(self, prompt: str, bver: str = "3.0") -> str:
-        import hashlib
         run_id = hashlib.md5((prompt + str(os.getpid())).encode()).hexdigest()[:12]
         _set_run_id(run_id)
         self.error_history.clear()
-        logger.info("=" * 60)
-        logger.info("PIPELINE STARTED: %s", prompt[:80])
-        logger.info("=" * 60)
+    logger.info("=" * 60)
+    logger.info("PIPELINE STARTED: %s", prompt[:80])
+    logger.info("=" * 60)
 
         ctx = PipelineContext(prompt=prompt)
         phase = Phase.F1_ENHANCE
@@ -134,7 +134,7 @@ class Orchestrator:
         if not archetype:
             archetype = await self._validate_archetype(ctx.prompt)
             ctx.enhanced_prompt = (
-                f"ARCHETIPO: {archetype} -- classificato automaticamente\n\n{ctx.enhanced_prompt}"
+                f"ARCHETYPE: {archetype} -- automatically classified\n\n{ctx.enhanced_prompt}"
             )
         return Phase.F1_PLAN
 
@@ -201,11 +201,19 @@ class Orchestrator:
             return f3a if f3a else original
         if f3a == f3b:
             return f3a
-        if f3a == original and f3b != original:
+        if f3a == original:
             return f3b
-        if f3b == original and f3a != original:
+        if f3b == original:
             return f3a
-        return f3a
+        longer = f3a if len(f3a) >= len(f3b) else f3b
+        shorter = f3b if len(f3a) >= len(f3b) else f3a
+        if longer.startswith(original) and shorter.startswith(original):
+            return longer
+        if f3a.strip() != original.strip() and f3b.strip() == original.strip():
+            return f3a
+        if f3b.strip() != original.strip() and f3a.strip() == original.strip():
+            return f3b
+        return f3a if len(f3a) >= len(f3b) else f3b
 
     async def _phase_f3_static(self, ctx: "PipelineContext") -> Phase:
         if not self.static_analyzer:
@@ -238,19 +246,26 @@ class Orchestrator:
 
                 if self.mesh_validator:
                     try:
-                        valid, issues = await self.mesh_validator.validate(ctx.script)
+                        stl_dir = os.path.expanduser(CFG.get("stl_output_dir", "~/Desktop/blender_prints"))
+                        os.makedirs(stl_dir, exist_ok=True)
+                        stl_path = os.path.join(stl_dir, f"print_{hashlib.md5(ctx.prompt.encode()).hexdigest()[:8]}.stl")
+
+                        valid, issues = await self.mesh_validator.validate_and_export_stl(ctx.script, stl_path)
                         if not valid:
                             issues_text = self.mesh_validator.format_issues_for_llm(issues)
                             logger.warning("Mesh validation failed: %s", issues_text[:100])
                             ctx.error_text = issues_text
                             return await self._apply_f6_fix(ctx, issues_text, "mesh validation fix")
+                        ctx.stl_exported = True
+                        ctx.stl_path = stl_path
+                        logger.info("Validation OK + STL exported: %s", stl_path)
                     except Exception as e:
                         logger.warning("Mesh validation failed: %s. Continuing.", e)
 
                 return Phase.F4_VISION
             else:
                 logger.warning("F4 OK but no mesh detected")
-                error_text = "The script did not produce mesh objects in the scene. Add geometry."
+                error_text = "The script did not produce any mesh objects in the scene. Add geometry."
                 ctx.error_text = error_text
                 return await self._apply_f6_fix(ctx, error_text, "no mesh fix")
         else:
@@ -308,6 +323,9 @@ class Orchestrator:
             logger.warning("No progress after fix. Forcing exit.")
             return Phase.F4_VISION
 
+        if ctx.fix_type != fix_type:
+            ctx.fix_attempt = 0
+            ctx.fix_type = fix_type
         ctx.fix_attempt += 1
         if ctx.fix_attempt > CFG.get("fix_loops", 6):
             logger.warning("Fix loop exhausted (%d attempts).", ctx.fix_attempt)
@@ -330,9 +348,10 @@ class Orchestrator:
 
         if new_script == ctx.script:
             logger.warning("F6 fix did not modify the script. No progress.")
+            return Phase.F4_VISION
 
         if not new_script or len(new_script.strip()) < 50:
-            logger.warning("F6 fix produced empty script.")
+            logger.warning("F6 fix produced an empty script.")
             return Phase.F4_VISION
 
         self.error_history.add(error_text, fix_type)
@@ -351,6 +370,11 @@ class Orchestrator:
             ctx.success = True
             return Phase.DONE
 
+        if self.error_history.is_repeated(f"Vision fix: {feedback[:100]}"):
+            logger.warning("Visual error already attempted without progress. Forcing exit.")
+            ctx.success = True
+            return Phase.DONE
+
         error_history = self.error_history.get_history_block()
         try:
             new_script = await f6_vision_fix(self.llm, ctx.script, feedback, error_history)
@@ -359,7 +383,7 @@ class Orchestrator:
             return Phase.FAILED
 
         if new_script == ctx.script or len(new_script.strip()) < 50:
-            logger.warning("F6-VIS produced no changes. Accepting current script.")
+            logger.warning("F6-VIS did not produce changes. Accepting current script.")
             ctx.success = True
             return Phase.DONE
 
@@ -373,38 +397,44 @@ class Orchestrator:
         return self.error_history.is_repeated(error_text) or ctx.oscillation.is_oscillating()
 
     async def _maybe_export_stl(self, ctx: "PipelineContext") -> None:
-        stl_dir = CFG.get("stl_output_dir", "~/Desktop/blender_prints")
-        stl_dir = os.path.expanduser(stl_dir)
-        os.makedirs(stl_dir, exist_ok=True)
-        import hashlib
-        obj_name = "print_" + hashlib.md5(ctx.prompt.encode()).hexdigest()[:8]
-        stl_path = os.path.join(stl_dir, f"{obj_name}.stl")
+        stl_dir = os.path.expanduser(CFG.get("stl_output_dir", "~/Desktop/blender_prints"))
+        try:
+            os.makedirs(stl_dir, exist_ok=True)
+        except OSError as e:
+            logger.warning("Unable to create STL directory %s: %s", stl_dir, e)
+            return
+        stl_path = os.path.join(stl_dir, f"print_{hashlib.md5(ctx.prompt.encode()).hexdigest()[:8]}.stl")
+
+        if ctx.stl_exported and ctx.stl_path == stl_path:
+            logger.info("STL already exported during validation: %s", stl_path)
+            return
 
         export_snippet = f'''
 import bpy, bmesh, os
-output_dir = {stl_dir!r}
-os.makedirs(output_dir, exist_ok=True)
+
+_stl_file = {stl_path!r}
+os.makedirs(os.path.dirname(_stl_file), exist_ok=True)
 for obj in bpy.data.objects:
     if obj.type == "MESH":
         obj.select_set(True)
     else:
         obj.select_set(False)
 bpy.ops.export_mesh.stl(
-    filepath={stl_path!r},
+    filepath=_stl_file,
     use_selection=True,
     use_mesh_modifiers=True,
     global_scale=1000,
 )
-print(f"STL_EXPORTED:{{stl_path}}")
+print(f"STL_EXPORTED:{{_stl_file}}")
 '''
         try:
             ok, out = await self.runner.execute(ctx.script + "\n" + export_snippet)
             if ok and "STL_EXPORTED" in out:
                 logger.info("STL exported: %s", stl_path)
             else:
-                logger.warning("STL export failed (the mesh may not be valid).")
+                logger.warning("STL export failed (the mesh might not be valid).")
         except Exception as e:
-            logger.warning("STL export failed: %s", e)
+            logger.warning("STL export unsuccessful: %s", e)
 
     def _fallback_transition(self, phase: Phase) -> Phase:
         fallback_map = {
@@ -471,13 +501,13 @@ print(f"STL_EXPORTED:{{stl_path}}")
         for sig in core_api_signals:
             if sig in output_lower:
                 has_bpy_script = "import bpy" in output_lower
-                has_error = "error:" in output_lower or "traceback" in output_lower
-                return has_bpy_script and not has_error
+                has_traceback_marker = "traceback" in output_lower
+                has_python_error = "error: python:" in output_lower or "error: line " in output_lower
+                return has_bpy_script and not has_traceback_marker and not has_python_error
 
         return False
 
     def _generate_fallback_script(self, prompt: str) -> str:
-        import hashlib
         obj_name = "fallback_" + hashlib.md5(prompt.encode()).hexdigest()[:8]
         return f'''
 import bpy
@@ -526,14 +556,17 @@ class PipelineContext:
 
         self.vision_attempt = 0
         self.fix_attempt = 0
+        self.fix_type = ""
 
         self.oscillation = OscillationDetector(max_history=6)
+        self.stl_exported = False
+        self.stl_path = ""
 
     def log_final(self):
         status = "SUCCESS" if self.success else "PARTIAL (best-effort)"
         logger.info("=" * 60)
         logger.info("PIPELINE COMPLETED — %s", status)
-        logger.info("Script: %d chars, Fix attempts: %d, Vision attempts: %d",
+        logger.info("Script: %d caratteri, Fix: %d, Vision: %d",
                      len(self.script) if self.script else 0,
                      self.fix_attempt, self.vision_attempt)
         logger.info("=" * 60)

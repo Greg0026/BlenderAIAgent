@@ -300,14 +300,14 @@ def _request_with_retry(
             retry_after = r.headers.get("Retry-After")
             ra_seconds = float(retry_after) if retry_after else 0.0
             wait = max(ra_seconds, backoff)
-            log.warning(f"[HTTP] {r.status_code} su {url} -- retry tra {wait:.0f}s ({attempt}/{max_retries})")
+            log.warning(f"[HTTP] {r.status_code} on {url} -- retry in {wait:.0f}s ({attempt}/{max_retries})")
             time.sleep(wait)
             backoff *= 2
             continue
 
         return r
 
-    raise last_exc or RuntimeError(f"retry esauriti per {url}")
+    raise last_exc or RuntimeError(f"retries exhausted for {url}")
 
 
 def _gh_call(gh: "Github", func, *args, max_retries: int = 5, **kwargs):
@@ -691,7 +691,7 @@ class StackExchangeCollector:
                             snippets.append(Snippet(
                                 id=_make_id("se", chunk),
                                 collection=_infer_collection(q_title + " " + chunk),
-                                description=q_title or "Blender Python snippet da Stack Exchange",
+                                description=q_title or "Blender Python snippet from Stack Exchange",
                                 code=chunk,
                                 tags=_extract_tags(chunk, q_title),
                                 source="stackexchange",
@@ -874,7 +874,7 @@ class GitHubSearchCollector:
         if not _GITHUB_OK:
             raise ImportError("pip install PyGitHub")
         if not token:
-            raise ValueError("GitHubSearchCollector richiede un token: code search non disponibile in anonimo")
+            raise ValueError("GitHubSearchCollector requires a token: code search not available anonymously")
         self.gh = Github(auth=Auth.Token(token))
         self.quota = quota
 
@@ -937,7 +937,7 @@ class GitHubSearchCollector:
                         first_line = chunk.strip().splitlines()[0]
                         func_match = re.search(r'def (\w+)', first_line)
                         func_label = func_match.group(1) if func_match else "snippet"
-                        description = f"{func_label} da {file_key}"
+                        description = f"{func_label} from {file_key}"
 
                         snippets.append(Snippet(
                             id=_make_id("ghs", chunk),
@@ -1528,7 +1528,7 @@ def save_corpus(snippets: list[Snippet], path: Path = CORPUS_PATH) -> None:
     with open(path, "w", encoding="utf-8") as f:
         for s in snippets:
             f.write(json.dumps(s.to_dict(), ensure_ascii=False) + "\n")
-    log.info(f"[CORPUS] Salvati {len(snippets)} snippet in {path}")
+    log.info(f"[CORPUS] Saved {len(snippets)} snippets to {path}")
 
 
 def load_corpus(path: Path = CORPUS_PATH) -> list[Snippet]:
@@ -1546,7 +1546,7 @@ def load_corpus(path: Path = CORPUS_PATH) -> list[Snippet]:
             line = line.strip()
             if line:
                 snippets.append(Snippet.from_dict(json.loads(line)))
-    log.info(f"[CORPUS] Caricati {len(snippets)} snippet da {path}")
+    log.info(f"[CORPUS] Loaded {len(snippets)} snippets from {path}")
     return snippets
 
 
@@ -1579,7 +1579,7 @@ async def load_corpus_into_vectordb(db, path: Path = CORPUS_PATH) -> None:
         import vectordb
         original_len = len(vectordb.CORPUS)
         vectordb.CORPUS.extend(corpus_dicts)
-        log.info(f"[CORPUS] Aggiunti {len(corpus_dicts)} snippet al CORPUS ({original_len} -> {len(vectordb.CORPUS)})")
+        log.info(f"[CORPUS] Added {len(corpus_dicts)} snippets to CORPUS ({original_len} -> {len(vectordb.CORPUS)})")
         await db.build()
 
 
@@ -1662,7 +1662,7 @@ def build_corpus(
     )
 
     if not skip_github:
-        log.info("=== COLLECTOR: GitHub (repo curati) ===")
+        log.info("=== COLLECTOR: GitHub (curated repos) ===")
         _collect_source(
             "github", "GH",
             lambda: GitHubCollector(token=token, quota=QUOTA["github_repos"]).collect(),

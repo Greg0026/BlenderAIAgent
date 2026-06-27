@@ -1,5 +1,6 @@
 import asyncio
 import os
+import sys
 import tempfile
 from typing import Optional, Tuple
 
@@ -13,10 +14,11 @@ class BlenderRunner:
     async def execute(self, script: str, timeout: float = None) -> Tuple[bool, str]:
         from cfg import CFG
 
-        _timeout = timeout or CFG.get("blender_timeout", 120)
+        _timeout = timeout if timeout is not None else CFG.get("blender_timeout", 120)
 
-        fd, temp_path = tempfile.mkstemp(suffix=".py", text=True)
+        temp_path = None
         try:
+            fd, temp_path = tempfile.mkstemp(suffix=".py", text=True)
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(script)
 
@@ -24,6 +26,7 @@ class BlenderRunner:
                 self.blender_exe,
                 "--background",
                 "--factory-startup",
+                "--addons", "io_mesh_stl",
                 "--python",
                 temp_path,
                 stdout=asyncio.subprocess.PIPE,
@@ -35,11 +38,20 @@ class BlenderRunner:
                     process.communicate(), timeout=_timeout
                 )
             except asyncio.TimeoutError:
-                process.kill()
-                await process.communicate()
+                try:
+                    if sys.platform == "win32":
+                        proc = await asyncio.create_subprocess_exec(
+                            "taskkill", "/T", "/F", "/PID", str(process.pid)
+                        )
+                        await asyncio.wait_for(proc.communicate(), timeout=5)
+                    else:
+                        process.kill()
+                    await asyncio.wait_for(process.communicate(), timeout=5)
+                except Exception:
+                    pass
                 return False, (
                     f"TIMEOUT: Blender did not finish within {_timeout}s. "
-                    "Script likely in infinite loop or with overly expensive operations."
+                    "Script is probably in an infinite loop or too expensive."
                 )
 
             out_str = stdout.decode("utf-8", errors="replace")
@@ -51,7 +63,7 @@ class BlenderRunner:
                 return False, (
                     f"BLENDER_CRASH: returncode={process.returncode}. "
                     "Blender crashed (segfault, GPU error, or out-of-memory). "
-                    "Ultime righe output:\n" + "\n".join(full_output.splitlines()[-20:])
+                    "Last output lines:\n" + "\n".join(full_output.splitlines()[-20:])
                 )
 
             has_traceback = (
@@ -78,5 +90,5 @@ class BlenderRunner:
         except Exception as e:
             return False, f"Internal subprocess runner error: {str(e)}"
         finally:
-            if os.path.exists(temp_path):
+            if temp_path and os.path.exists(temp_path):
                 os.remove(temp_path)

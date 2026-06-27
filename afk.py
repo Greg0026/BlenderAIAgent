@@ -126,7 +126,7 @@ def _slug(text: str) -> str:
     stop = {"create", "a", "with", "from", "for", "of", "in", "blender", "30",
             "printable", "3d", "walls", "height", "about", "mm", "cm", "generate", "the"}
     meaningful = [w for w in words if w not in stop and not w.isdigit()][:6]
-    return "_".join(meaningful) if meaningful else "oggetto_generico"
+    return "_".join(meaningful) if meaningful else "generic_object"
 
 
 def _elapsed(seconds: float) -> str:
@@ -265,7 +265,7 @@ async def main():
                 n_ok += 1
                 logger.info("Script saved in: %s", job_dir)
             else:
-                save_result(session_dir, idx, prompt, result["script"] or "# Nessuno script", False, result["phase_reached"], result["elapsed_sec"], result["error"])
+                save_result(session_dir, idx, prompt, result["script"] or "# No script", False, result["phase_reached"], result["elapsed_sec"], result["error"])
                 logger.warning("Job %d failed: %s", idx, result['error'][:80] if result['error'] else 'Unknown error')
                 if not BATCH_CFG.get("skip_failed", True):
                     logger.warning("skip_failed=False -- aborting batch.")

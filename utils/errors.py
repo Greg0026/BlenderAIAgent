@@ -3,16 +3,16 @@
 Provides two fundamental classes for pipeline stability:
 
 ErrorHistory:
-  Maintains the history of errors encountered in F6 and F6-VIS phases.
-  Each error is registered with a "signature" that identifies
+  Maintains the history of errors encountered in the F6 and F6-VIS phases.
+  Each error is recorded with a "signature" that identifies
   the error type (based on the message, not the entire stack trace).
   The history is passed to the LLM in subsequent calls to prevent
-  repeating already attempted fixes that were unsuccessful.
+  repeating already attempted fixes without success.
 
 OscillationDetector:
   Detects oscillation patterns in pipeline iterations.
   Compares MD5 fingerprints of scripts produced at each iteration.
-  If the script returns to a previously seen state (pattern A→B→A→B), detects
+  If the script returns to an already seen state (A→B→A→B pattern), detects
   the oscillation and allows the orchestrator to break the cycle.
 """
 
@@ -24,17 +24,17 @@ from typing import List, Optional
 class ErrorHistory:
     """Error history with repetition detection.
 
-    Useful to prevent the pipeline from repeating the same fix
-    indefinitely without success. Each error is converted to a "signature" extracted
+    Useful to prevent the pipeline from repeating the same fix endlessly
+    without success. Each error is converted to a "signature" extracted
     from the main message (Error: or Exception: line), ignoring
-    variable parts such as memory addresses or timestamps.
+    variable parts like memory addresses or timestamps.
 
     Args:
         max_history: Maximum number of errors to keep in history.
     """
 
     def __init__(self, max_history: int = 10):
-        """Initializes an empty history with maximum capacity.
+        """Initialize the empty history with maximum capacity.
 
         Args:
             max_history: Maximum number of errors to track (FIFO).
@@ -44,10 +44,10 @@ class ErrorHistory:
         self._max = max_history
 
     def add(self, error: str, fix_approach: str = ""):
-        """Registers a new error and the attempted fix.
+        """Record a new error and the attempted fix.
 
         If the same error (same signature) is already present, it is not
-        duplicated. The fix_approach is an optional textual description
+        duplicated. fix_approach is an optional textual description
         of what was attempted (useful for the LLM prompt).
 
         Args:
@@ -63,21 +63,25 @@ class ErrorHistory:
             self._fixes.pop(0)
 
     def is_repeated(self, error: str) -> bool:
-        """Checks if an error has already been seen before.
+        """Check if an error has already been seen before.
+
+        Requires at least 2 occurrences to declare a repeat (avoids
+        false positives from a single unsuccessful fix attempt).
 
         Args:
             error: Full error text to check.
 
         Returns:
-            True if the same error (same signature) is already in the history.
+            True if the same error (same signature) is already in history.
         """
-        return self._signature(error) in self._errors
+        sig = self._signature(error)
+        return sum(1 for e in self._errors if e == sig) >= 2
 
     def get_history_block(self) -> str:
-        """Returns a formatted text block for the LLM prompt.
+        """Return a formatted text block for the LLM prompt.
 
         The block lists previous errors and attempted fixes, with
-        the instruction "DO NOT REPEAT" to prevent infinite loops.
+        the instruction "DO NOT REPEAT" to prevent infinite cycles.
 
         Returns:
             Formatted text with error history, or "No previous attempts."
@@ -88,17 +92,17 @@ class ErrorHistory:
         for i, (err, fix) in enumerate(zip(self._errors, self._fixes), 1):
             lines.append(f"  {i}. Error: {err[:120]}")
             if fix:
-                lines.append(f"     Fix attempted: {fix[:120]}")
+                lines.append(f"     Attempted fix: {fix[:120]}")
         return "\n".join(lines)
 
     def clear(self):
-        """Resets the history by clearing all registered errors."""
+        """Reset the history by deleting all recorded errors."""
         self._errors.clear()
         self._fixes.clear()
 
     @staticmethod
     def _signature(error: str) -> str:
-        """Extracts a unique signature from an error message.
+        """Extract a unique signature from an error message.
 
         The signature is the first line containing "Error:" or "Exception:"
         (truncated to 150 characters). If no line matches, uses
@@ -109,7 +113,7 @@ class ErrorHistory:
             error: Full error text.
 
         Returns:
-            Signature string (max 150 characters).
+            Signature string (max 150 chars).
         """
         lines = error.strip().splitlines()
         for line in lines:
@@ -128,27 +132,27 @@ class OscillationDetector:
     """Detects oscillation patterns in pipeline iterations.
 
     Compares MD5 fingerprints of scripts produced at each iteration
-    of the vision loop. If the script returns to a previously seen state
-    (cyclic pattern A→B→A→B or A→B→C→A→B→C), reports the oscillation.
+    of the vision loop. If the script returns to an already seen state
+    (cyclic pattern A→B→A→B or A→B→C→A→B→C), signals the oscillation.
 
     Args:
         max_history: Maximum number of snapshots to keep in memory.
     """
 
     def __init__(self, max_history: int = 5):
-        """Initializes the detector with maximum capacity.
+        """Initialize the detector with maximum capacity.
 
         Args:
-            max_history: Number of recent snapshots to retain.
+            max_history: Number of recent snapshots to keep.
         """
         self._snapshots: List[str] = []
         self._max = max_history
 
     def add_snapshot(self, script: str):
-        """Adds the current snapshot (MD5 fingerprint of the script).
+        """Add the current snapshot (MD5 fingerprint of the script).
 
         Args:
-            script: Full script text to track.
+            script: Full text of the script to track.
         """
         sig = self._signature(script)
         if not sig:
@@ -158,15 +162,18 @@ class OscillationDetector:
             self._snapshots.pop(0)
 
     def is_oscillating(self) -> bool:
-        """Checks if an oscillation is in progress (A→B→A→B pattern or longer cycles).
+        """Check if an oscillation is in progress (A→B→A→B or longer cycles).
 
         Checks period-2 patterns (A→B→A→B) with at least 4 snapshots,
         and period-3 patterns (A→B→C→A→B→C) with at least 6 snapshots.
+        Excludes the case of stable convergence (A→A→A→A) which is not oscillation.
 
         Returns:
-            True if an oscillatory pattern has been detected.
+            True if an oscillation pattern has been detected.
         """
         if len(self._snapshots) < 4:
+            return False
+        if len(set(self._snapshots)) == 1:
             return False
         for period in range(2, 4):
             if len(self._snapshots) >= period * 2:
@@ -178,11 +185,12 @@ class OscillationDetector:
 
     @staticmethod
     def _signature(script: str) -> str:
-        """Calculates a normalized MD5 fingerprint for robust comparison.
+        """Calculate the normalized MD5 fingerprint for robust comparison.
 
-        Removes comments, redundant spaces, and empty lines before
-        computing the hash, so that cosmetic variations (comments,
-        whitespace) do not prevent oscillation detection.
+        Removes comments (only lines starting with #), redundant spaces
+        and empty lines before computing the hash, so that cosmetic
+        variations (comments, whitespace) do not prevent oscillation
+        detection.
 
         Args:
             script: Script text.
@@ -192,6 +200,7 @@ class OscillationDetector:
         """
         if not script:
             return ""
-        norm = re.sub(r'#.*', '', script)
-        norm = re.sub(r'\s+', ' ', norm).strip()
+        lines = script.splitlines()
+        cleaned = [l for l in lines if not l.strip().startswith("#")]
+        norm = re.sub(r'\s+', ' ', " ".join(cleaned)).strip()
         return hashlib.md5(norm.encode()).hexdigest()
